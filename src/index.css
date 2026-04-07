@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    @apply font-sans antialiased bg-gray-50 text-gray-900;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #root {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* TipTap editor prose */
+.tiptap {
+  outline: none;
+  min-height: 100%;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+
+.tiptap h1 { @apply text-3xl font-bold mb-4 mt-6 text-gray-900; }
+.tiptap h2 { @apply text-2xl font-bold mb-3 mt-5 text-gray-900; }
+.tiptap h3 { @apply text-xl font-semibold mb-2 mt-4 text-gray-900; }
+.tiptap h4 { @apply text-lg font-semibold mb-2 mt-3 text-gray-900; }
+.tiptap p  { @apply mb-3 leading-7; }
+
+.tiptap ul { @apply list-disc pl-6 mb-3 space-y-1; }
+.tiptap ol { @apply list-decimal pl-6 mb-3 space-y-1; }
+
+.tiptap ul[data-type="taskList"] { @apply list-none pl-0; }
+.tiptap ul[data-type="taskList"] li { @apply flex items-start gap-2 mb-1; }
+.tiptap ul[data-type="taskList"] li > label { @apply mt-0.5 flex-shrink-0; }
+.tiptap ul[data-type="taskList"] li > div { @apply flex-1; }
+
+.tiptap blockquote {
+  @apply border-l-4 border-indigo-300 pl-4 italic text-gray-600 my-4 bg-indigo-50 py-2 rounded-r;
+}
+
+.tiptap pre {
+  @apply bg-gray-900 text-gray-100 rounded-xl p-4 my-4 overflow-x-auto font-mono text-sm;
+}
+.tiptap code {
+  @apply bg-red-50 text-red-600 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+.tiptap pre code {
+  @apply bg-transparent text-gray-100 p-0;
+}
+
+.tiptap hr { @apply my-6 border-gray-200; }
+
+/* Tables */
+.tiptap table { @apply w-full border-collapse my-4 text-sm; }
+.tiptap table th { @apply bg-gray-100 font-semibold text-left px-3 py-2 border border-gray-300; }
+.tiptap table td { @apply px-3 py-2 border border-gray-300; }
+.tiptap table tr:hover td { @apply bg-gray-50; }
+.tiptap .selectedCell { @apply bg-blue-50; }
+.tiptap .column-resize-handle {
+  @apply absolute right-0 top-0 bottom-0 w-1 bg-blue-400 pointer-events-none;
+}
+
+/* Images */
+.tiptap img { @apply max-w-full h-auto rounded-lg my-3 shadow-sm; }
+.tiptap img.ProseMirror-selectednode { @apply ring-2 ring-blue-500; }
+
+/* Links */
+.tiptap a { @apply text-indigo-600 underline hover:text-indigo-800 cursor-pointer; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { @apply bg-transparent; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-gray-400; }
+
+/* Toolbar */
+.toolbar-btn {
+  @apply p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+}
+.toolbar-btn.active {
+  @apply bg-indigo-100 text-indigo-700;
+}
+.toolbar-divider {
+  @apply w-px h-5 bg-gray-200 mx-0.5 flex-shrink-0;
+}
