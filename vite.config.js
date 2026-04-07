@@ -24,7 +24,7 @@ export default defineConfig({
           ],
           'vendor-sheets': ['@fortune-sheet/react'],
           'vendor-slides': ['reveal.js', 'pptxgenjs'],
-          'vendor-export': ['docx', 'xlsx', 'file-saver', 'turndown'],
+          'vendor-export': ['docx', 'xlsx', 'file-saver', 'turndown', 'mammoth'],
           'vendor-pdf': ['pdfjs-dist', 'pdf-lib', 'signature_pad'],
         },
       },

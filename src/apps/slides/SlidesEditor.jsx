@@ -68,7 +68,7 @@ export default function SlidesEditor() {
         setFile(f)
         setTitle(f.name)
         if (f.content?.slides) setSlidesData(f.content)
-      }).catch(() => navigate('/'))
+      }).catch(() => navigate('/slides'))
     }
   }, [id])
 
@@ -166,7 +166,7 @@ export default function SlidesEditor() {
     <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">
-        <button onClick={() => navigate('/')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ArrowLeft size={18} /></button>
+        <button onClick={() => navigate('/slides')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"><ArrowLeft size={18} /></button>
         <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
           <svg viewBox="0 0 24 24" className="w-4 h-4 text-amber-600 fill-current"><path d="M21 3H3a2 2 0 00-2 2v14a2 2 0 002 2h18a2 2 0 002-2V5a2 2 0 00-2-2zm0 16H3V5h18v14zM7 12H5v5h2v-5zm4-3H9v8h2V9zm4 2h-2v6h2v-6zm4-4h-2v10h2V7z"/></svg>
         </div>

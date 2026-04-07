@@ -38,6 +38,7 @@ export default function DocsEditor() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(true)
   const [title, setTitle] = useState(file?.name || 'Untitled')
+  const [pendingContent, setPendingContent] = useState(null)
   const saveTimer = useRef(null)
 
   const editor = useEditor({
@@ -73,10 +74,18 @@ export default function DocsEditor() {
       api.getFile(id).then((f) => {
         setFile(f)
         setTitle(f.name)
-        editor?.commands.setContent(resolveContent(f.content))
-      }).catch(() => navigate('/'))
+        setPendingContent(resolveContent(f.content))
+      }).catch(() => navigate('/docs'))
     }
   }, [id])
+
+  // Apply pending content once editor is ready
+  useEffect(() => {
+    if (editor && pendingContent !== null) {
+      editor.commands.setContent(pendingContent, false)
+      setPendingContent(null)
+    }
+  }, [editor, pendingContent])
 
   const autosave = useCallback(async () => {
     if (!editor || !id) return
@@ -112,7 +121,7 @@ export default function DocsEditor() {
     <div className="flex-1 flex flex-col overflow-hidden bg-white">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white">
-        <button onClick={() => navigate('/')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <button onClick={() => navigate('/docs')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
           <ArrowLeft size={18} />
         </button>
         <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">

@@ -25,7 +25,7 @@ export default function SheetsEditor() {
         setFile(f)
         setTitle(f.name)
         setData(f.content || [{ name: 'Sheet1', celldata: [], config: {} }])
-      }).catch(() => navigate('/'))
+      }).catch(() => navigate('/sheets'))
     }
   }, [id])
 
@@ -56,7 +56,7 @@ export default function SheetsEditor() {
     <div className="flex-1 flex flex-col overflow-hidden bg-white">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">
-        <button onClick={() => navigate('/')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
+        <button onClick={() => navigate('/sheets')} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition">
           <ArrowLeft size={18} />
         </button>
         <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">

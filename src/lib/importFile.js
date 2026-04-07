@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx'
 import { marked } from 'marked'
+import mammoth from 'mammoth'
 import { api } from './api'
+import { useFilesStore } from '../store/filesStore'
 
 // Map file extension → app type
 export function detectType(filename) {
@@ -65,8 +67,23 @@ async function convertToDocContent(file) {
     return { type: 'doc', _html: text, content: [{ type: 'paragraph' }] }
   }
 
-  // docx: basic extraction — just use a placeholder for now
-  return { type: 'doc', content: [{ type: 'paragraph' }] }
+  if (ext === 'docx') {
+    const buf = await fileToArrayBuffer(file)
+    const result = await mammoth.convertToHtml({ arrayBuffer: buf })
+    return { type: 'doc', _html: result.value || '<p></p>', content: [{ type: 'paragraph' }] }
+  }
+
+  // rtf / doc / other — render as plain text fallback
+  try {
+    const text = await fileToText(file)
+    const paragraphs = text.split(/\n\n+/).filter(Boolean).map(p => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text: p.replace(/\n/g, ' ').trim() }],
+    }))
+    return { type: 'doc', content: paragraphs.length ? paragraphs : [{ type: 'paragraph' }] }
+  } catch {
+    return { type: 'doc', content: [{ type: 'paragraph' }] }
+  }
 }
 
 async function convertToSheetContent(file) {
@@ -163,6 +180,7 @@ export async function importFile(file, navigate) {
     : await convertToSheetContent(file)
 
   const created = await api.createFile(baseName, type, content)
+  useFilesStore.setState({ files: [created, ...useFilesStore.getState().files.filter(f => f.id !== created.id)] })
   navigate(`/${typeToRoute(type)}/${created.id}`)
 }
 
@@ -205,10 +223,21 @@ export async function importFromUrl(localFile, navigate) {
         content: [{ type: 'text', text: p.replace(/\n/g, ' ').trim() }],
       }))
       content = { type: 'doc', content: paragraphs.length ? paragraphs : [{ type: 'paragraph' }] }
-    } else {
-      // html / rtf / docx fallback
+    } else if (ext === 'html' || ext === 'htm') {
       const text = await res.text()
       content = { type: 'doc', _html: text, content: [{ type: 'paragraph' }] }
+    } else if (ext === 'docx') {
+      const buf = await res.arrayBuffer()
+      const result = await mammoth.convertToHtml({ arrayBuffer: buf })
+      content = { type: 'doc', _html: result.value || '<p></p>', content: [{ type: 'paragraph' }] }
+    } else {
+      // rtf / doc / other — plain text fallback
+      const text = await res.text()
+      const paragraphs = text.split(/\n\n+/).filter(Boolean).map(p => ({
+        type: 'paragraph',
+        content: [{ type: 'text', text: p.replace(/\n/g, ' ').trim() }],
+      }))
+      content = { type: 'doc', content: paragraphs.length ? paragraphs : [{ type: 'paragraph' }] }
     }
   } else {
     // sheet
@@ -237,5 +266,6 @@ export async function importFromUrl(localFile, navigate) {
   }
 
   const created = await api.createFile(baseName, appType, content)
+  useFilesStore.setState({ files: [created, ...useFilesStore.getState().files.filter(f => f.id !== created.id)] })
   navigate(`/${typeToRoute(appType)}/${created.id}`)
 }

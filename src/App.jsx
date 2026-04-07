@@ -9,6 +9,7 @@ import DocsEditor from './apps/docs/DocsEditor'
 import SheetsEditor from './apps/sheets/SheetsEditor'
 import SlidesEditor from './apps/slides/SlidesEditor'
 import PDFEditor from './apps/pdf/PDFEditor'
+import Settings from './components/Settings'
 
 export default function App() {
   const { status, loading, fetchStatus } = useAuthStore()
@@ -37,7 +38,9 @@ export default function App() {
         <Route path="/docs/:id" element={<DocsEditor />} />
         <Route path="/sheets/:id" element={<SheetsEditor />} />
         <Route path="/slides/:id" element={<SlidesEditor />} />
+        <Route path="/pdf" element={<AppHome type="pdf" />} />
         <Route path="/pdf-editor" element={<PDFEditor />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

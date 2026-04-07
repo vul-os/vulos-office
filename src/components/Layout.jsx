@@ -12,7 +12,7 @@ const NAV_APPS = [
   { label: 'Docs',   icon: FileText,     route: '/docs',       color: 'text-indigo-400' },
   { label: 'Sheets', icon: Table2,       route: '/sheets',     color: 'text-emerald-400' },
   { label: 'Slides', icon: Presentation, route: '/slides',     color: 'text-amber-400' },
-  { label: 'PDF',    icon: FileSearch,   route: '/pdf-editor', color: 'text-rose-400' },
+  { label: 'PDF',    icon: FileSearch,   route: '/pdf',        color: 'text-rose-400' },
 ]
 
 function Sidebar() {
@@ -88,13 +88,14 @@ function Sidebar() {
 
         {/* Bottom */}
         <div className="border-t border-gray-800 py-2 px-2 space-y-0.5">
-          <button
-            title="Settings"
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition ${collapsed ? 'justify-center' : ''}`}
+          <NavLink to="/settings" title="Settings"
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition ${collapsed ? 'justify-center' : ''} ${isActive ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`
+            }
           >
             <Settings size={15} />
             {!collapsed && 'Settings'}
-          </button>
+          </NavLink>
 
           {status?.enabled && (
             <button

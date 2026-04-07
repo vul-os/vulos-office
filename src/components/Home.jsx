@@ -2,18 +2,12 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   FileText, Table2, Presentation, FileSearch, Clock,
-  ArrowUpRight, FolderSearch, HardDrive, RefreshCw, Loader2,
+  ArrowUpRight, FolderSearch, HardDrive, RefreshCw, Loader2, Plus,
 } from 'lucide-react'
 import { useFilesStore } from '../store/filesStore'
 import { useLocalFilesStore } from '../store/localFilesStore'
 import { importFromUrl } from '../lib/importFile'
-
-const APPS = [
-  { label: 'Docs',         description: 'Rich text documents',           icon: FileText,     route: '/docs',       gradient: 'from-indigo-500 to-indigo-700', bg: 'bg-indigo-50',  color: 'text-indigo-600', hover: 'hover:border-indigo-200' },
-  { label: 'Sheets',       description: 'Spreadsheets & formulas',        icon: Table2,       route: '/sheets',     gradient: 'from-emerald-500 to-emerald-700', bg: 'bg-emerald-50', color: 'text-emerald-600', hover: 'hover:border-emerald-200' },
-  { label: 'Slides',       description: 'Presentation decks',             icon: Presentation, route: '/slides',     gradient: 'from-amber-500 to-amber-600', bg: 'bg-amber-50',   color: 'text-amber-600', hover: 'hover:border-amber-200' },
-  { label: 'PDF',          description: 'View, annotate & sign PDFs',    icon: FileSearch,   route: '/pdf-editor', gradient: 'from-rose-500 to-rose-700', bg: 'bg-rose-50',    color: 'text-rose-600', hover: 'hover:border-rose-200' },
-]
+import NewFileModal from './NewFileModal'
 
 const typeInfo = {
   doc:   { icon: FileText,     color: 'text-indigo-500',  bg: 'bg-indigo-50',  route: 'docs'   },
@@ -61,42 +55,36 @@ export default function Home() {
   const { files: localFiles, loading: localLoading, scanned, scan } = useLocalFilesStore()
   const [showLocalAll, setShowLocalAll] = useState(false)
   const [importing, setImporting] = useState(null)
+  const [showNew, setShowNew] = useState(false)
 
   useEffect(() => { fetchFiles() }, [])
   useEffect(() => { if (!scanned) scan() }, [scanned])
 
-  const recentFiles = files.filter(f => typeInfo[f.type]).slice(0, 6)
+  const recentFiles = files.filter(f => typeInfo[f.type]).slice(0, 12)
   const visibleLocal = showLocalAll ? localFiles : localFiles.slice(0, 8)
 
   return (
     <div className="flex-1 overflow-auto bg-gray-50">
-      <div className="max-w-5xl mx-auto px-8 py-10">
+      <div className="max-w-4xl mx-auto px-8 py-10">
 
-        {/* App launcher */}
-        <section className="mb-12">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Apps</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {APPS.map(({ label, description, icon: Icon, route, gradient, bg, color, hover }) => (
-              <button key={route} onClick={() => navigate(route)}
-                className={`group bg-white rounded-2xl border border-gray-200 ${hover} hover:shadow-lg transition-all text-left overflow-hidden`}
-              >
-                <div className={`h-24 ${bg} flex items-center justify-center relative`}>
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-md group-hover:scale-105 transition-transform`}>
-                    <Icon size={22} className="text-white" />
-                  </div>
-                  <ArrowUpRight size={13} className="absolute top-2.5 right-2.5 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
-                </div>
-                <div className="px-4 py-3">
-                  <p className="font-semibold text-gray-900 text-sm">{label}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{description}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
+        {/* New file shortcut bar */}
+        <div className="flex items-center gap-3 mb-10">
+          {[
+            { label: 'New Document',     icon: FileText,     color: 'bg-indigo-600 hover:bg-indigo-700', type: 'doc'   },
+            { label: 'New Spreadsheet',  icon: Table2,       color: 'bg-emerald-600 hover:bg-emerald-700', type: 'sheet' },
+            { label: 'New Presentation', icon: Presentation, color: 'bg-amber-500 hover:bg-amber-600',   type: 'slide' },
+          ].map(({ label, icon: Icon, color, type }) => (
+            <button key={type} onClick={() => setShowNew(true)}
+              className={`flex items-center gap-2 px-4 py-2 ${color} text-white rounded-xl text-sm font-semibold shadow-sm transition`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {/* Recent Vulos files */}
-        {!filesLoading && recentFiles.length > 0 && (
+        {/* Recent activity */}
+        {recentFiles.length > 0 && (
           <section className="mb-10">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Recent</h2>
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -127,9 +115,7 @@ export default function Home() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <HardDrive size={14} className="text-gray-400" />
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                On Your Computer
-              </h2>
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">On Your Computer</h2>
               {localFiles.length > 0 && (
                 <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{localFiles.length} files</span>
               )}
@@ -200,6 +186,8 @@ export default function Home() {
           )}
         </section>
       </div>
+
+      {showNew && <NewFileModal onClose={() => setShowNew(false)} />}
     </div>
   )
 }

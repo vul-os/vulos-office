@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, LayoutGrid, List, MoreVertical, Clock,
   Trash2, Pencil, ArrowUpRight, FileText, Table2, Presentation,
-  HardDrive, FolderOpen, ExternalLink,
+  HardDrive, Loader2, RefreshCw, FileSearch, Upload,
 } from 'lucide-react'
 import { useFilesStore } from '../store/filesStore'
 import { useLocalFilesStore } from '../store/localFilesStore'
-import { api } from '../lib/api'
 import NewFileModal from './NewFileModal'
+import { importFromUrl, importFile } from '../lib/importFile'
 
 const CONFIG = {
   doc: {
@@ -18,6 +18,8 @@ const CONFIG = {
     route: 'docs', emptyMsg: 'No documents yet',
     localExts: ['.doc', '.docx', '.txt', '.md', '.rtf', '.odt'],
     extLabel: 'docx, doc, txt, md',
+    importExts: '.doc,.docx,.txt,.md,.rtf,.html',
+    canCreate: true,
   },
   sheet: {
     label: 'Spreadsheets', singularLabel: 'Spreadsheet',
@@ -26,6 +28,8 @@ const CONFIG = {
     route: 'sheets', emptyMsg: 'No spreadsheets yet',
     localExts: ['.xls', '.xlsx', '.csv', '.ods'],
     extLabel: 'xlsx, xls, csv',
+    importExts: '.xls,.xlsx,.csv,.tsv',
+    canCreate: true,
   },
   slide: {
     label: 'Presentations', singularLabel: 'Presentation',
@@ -34,6 +38,18 @@ const CONFIG = {
     route: 'slides', emptyMsg: 'No presentations yet',
     localExts: ['.ppt', '.pptx', '.odp'],
     extLabel: 'pptx, ppt',
+    importExts: '.pptx,.ppt',
+    canCreate: true,
+  },
+  pdf: {
+    label: 'PDFs', singularLabel: 'PDF',
+    icon: FileSearch, color: 'text-rose-600', bg: 'bg-rose-50',
+    btnBg: 'bg-rose-600 hover:bg-rose-700', accent: '#e11d48',
+    route: 'pdf', emptyMsg: 'No PDFs yet',
+    localExts: ['.pdf'],
+    extLabel: 'pdf',
+    importExts: '.pdf',
+    canCreate: false,
   },
 }
 
@@ -57,14 +73,29 @@ export default function AppHome({ type }) {
   const Icon = cfg.icon
   const navigate = useNavigate()
   const { files, loading, fetchFiles, deleteFile, renameFile } = useFilesStore()
-  const { files: localFiles, scanned, scan } = useLocalFilesStore()
+  const { files: localFiles, loading: localLoading, scanned, scan } = useLocalFilesStore()
   const [showNew, setShowNew] = useState(false)
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState('grid')
   const [menuOpen, setMenuOpen] = useState(null)
   const [renaming, setRenaming] = useState(null)
   const [renameValue, setRenameValue] = useState('')
-  const [tab, setTab] = useState('vulos') // 'vulos' | 'local'
+  const [importing, setImporting] = useState(null)
+  const fileInputRef = useRef(null)
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    setImporting('__file__')
+    try {
+      await importFile(file, navigate)
+    } catch (err) {
+      alert(`Could not open ${file.name}: ${err.message}`)
+    } finally {
+      setImporting(null)
+    }
+  }
 
   useEffect(() => { fetchFiles() }, [])
   useEffect(() => { if (!scanned) scan() }, [scanned])
@@ -81,6 +112,18 @@ export default function AppHome({ type }) {
 
   const startRename = (f) => { setRenaming(f.id); setRenameValue(f.name); setMenuOpen(null) }
   const commitRename = async (id) => { if (renameValue.trim()) await renameFile(id, renameValue.trim()); setRenaming(null) }
+
+  const openLocalFile = async (file) => {
+    setImporting(file.path)
+    try {
+      await importFromUrl(file, navigate)
+    } catch (e) {
+      console.error(e)
+      alert(`Could not open ${file.name}: ${e.message}`)
+    } finally {
+      setImporting(null)
+    }
+  }
 
   return (
     <div className="flex-1 overflow-auto bg-gray-50">
@@ -104,150 +147,135 @@ export default function AppHome({ type }) {
             <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid size={13} /></button>
             <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}><List size={13} /></button>
           </div>
-          <button onClick={() => setShowNew(true)}
-            className={`flex items-center gap-1.5 px-4 py-2 ${cfg.btnBg} text-white rounded-xl text-sm font-semibold shadow-sm transition`}
+          <input ref={fileInputRef} type="file" accept={cfg.importExts} className="hidden" onChange={handleImportFile} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing === '__file__'}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-sm font-semibold shadow-sm transition"
           >
-            <Plus size={14} /> New {cfg.singularLabel}
+            {importing === '__file__' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            Open File
           </button>
-        </div>
-      </div>
-
-      {/* Tabs: Vulos files vs Local files */}
-      <div className="bg-white border-b border-gray-100 px-6">
-        <div className="flex gap-0">
-          {[
-            { key: 'vulos', label: `In Vulos (${myFiles.length})` },
-            { key: 'local', label: `On Computer (${myLocalFiles.length})`, icon: HardDrive },
-          ].map(({ key, label, icon: TabIcon }) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition ${
-                tab === key ? `border-current ${cfg.color}` : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
+          {cfg.canCreate && (
+            <button onClick={() => setShowNew(true)}
+              className={`flex items-center gap-1.5 px-4 py-2 ${cfg.btnBg} text-white rounded-xl text-sm font-semibold shadow-sm transition`}
             >
-              {TabIcon && <TabIcon size={13} />}
-              {label}
+              <Plus size={14} /> New {cfg.singularLabel}
             </button>
-          ))}
+          )}
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-6">
+      <div className="max-w-6xl mx-auto px-6 py-6 space-y-8">
 
-        {/* ── VULOS FILES TAB ── */}
-        {tab === 'vulos' && (
-          <>
-            {loading && (
-              <div className="flex justify-center py-24">
-                <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: cfg.accent, borderTopColor: 'transparent' }} />
+        {/* Vulos files */}
+        <section>
+          {loading && (
+            <div className="flex justify-center py-16">
+              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: cfg.accent, borderTopColor: 'transparent' }} />
+            </div>
+          )}
+
+          {!loading && myFiles.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className={`w-16 h-16 ${cfg.bg} rounded-2xl flex items-center justify-center mb-4`}>
+                <Icon size={28} className={`${cfg.color} opacity-40`} />
               </div>
-            )}
-
-            {!loading && myFiles.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-28 text-center">
-                <div className={`w-20 h-20 ${cfg.bg} rounded-3xl flex items-center justify-center mb-5`}>
-                  <Icon size={36} className={`${cfg.color} opacity-50`} />
-                </div>
-                <p className="text-lg font-bold text-gray-900 mb-1">
-                  {search ? 'No results' : cfg.emptyMsg}
-                </p>
-                <p className="text-sm text-gray-400 mb-6">
-                  {search ? 'Try a different term' : `Start fresh with a blank ${cfg.singularLabel.toLowerCase()}`}
-                </p>
-                {!search && (
-                  <button onClick={() => setShowNew(true)}
-                    className={`flex items-center gap-2 px-5 py-2.5 ${cfg.btnBg} text-white rounded-xl text-sm font-semibold transition`}
+              <p className="text-base font-bold text-gray-900 mb-1">
+                {search ? 'No results' : cfg.emptyMsg}
+              </p>
+              <p className="text-sm text-gray-400 mb-5">
+                {search ? 'Try a different term' : `Start fresh with a blank ${cfg.singularLabel.toLowerCase()}`}
+              </p>
+              {!search && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-sm font-semibold transition"
                   >
-                    <Plus size={15} /> New {cfg.singularLabel}
+                    <Upload size={15} /> Open File
                   </button>
-                )}
-              </div>
-            )}
-
-            {/* Grid */}
-            {!loading && myFiles.length > 0 && viewMode === 'grid' && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {myFiles.map(file => (
-                  <FileCard key={file.id} file={file} cfg={cfg} Icon={Icon}
-                    renaming={renaming} renameValue={renameValue}
-                    setRenaming={setRenaming} setRenameValue={setRenameValue}
-                    menuOpen={menuOpen} setMenuOpen={setMenuOpen}
-                    onOpen={() => openFile(file)}
-                    onRename={() => startRename(file)}
-                    onRenameCommit={() => commitRename(file.id)}
-                    onDelete={() => { deleteFile(file.id); setMenuOpen(null) }}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* List */}
-            {!loading && myFiles.length > 0 && viewMode === 'list' && (
-              <FileListTable files={myFiles} cfg={cfg} Icon={Icon}
-                renaming={renaming} renameValue={renameValue}
-                setRenaming={setRenaming} setRenameValue={setRenameValue}
-                menuOpen={menuOpen} setMenuOpen={setMenuOpen}
-                onOpen={openFile}
-                onRename={startRename}
-                onRenameCommit={commitRename}
-                onDelete={(id) => { deleteFile(id); setMenuOpen(null) }}
-              />
-            )}
-          </>
-        )}
-
-        {/* ── LOCAL FILES TAB ── */}
-        {tab === 'local' && (
-          <>
-            {myLocalFiles.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-28 text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
-                  <HardDrive size={28} className="text-gray-300" />
+                  {cfg.canCreate && (
+                    <button onClick={() => setShowNew(true)}
+                      className={`flex items-center gap-2 px-5 py-2.5 ${cfg.btnBg} text-white rounded-xl text-sm font-semibold transition`}
+                    >
+                      <Plus size={15} /> New {cfg.singularLabel}
+                    </button>
+                  )}
                 </div>
-                <p className="text-base font-semibold text-gray-700 mb-1">
-                  {search ? 'No matching local files' : `No ${cfg.extLabel} files found`}
-                </p>
-                <p className="text-sm text-gray-400">
-                  Scanned Documents, Downloads & Desktop
-                </p>
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {myLocalFiles.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                {myLocalFiles.map((file, i) => (
-                  <div key={file.path}
-                    className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition group ${i < myLocalFiles.length - 1 ? 'border-b border-gray-50' : ''}`}
-                  >
-                    <div className={`w-8 h-8 ${cfg.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                      <Icon size={15} className={cfg.color} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-                      <p className="text-[10px] text-gray-400 truncate">{file.path.replace(/\/Users\/[^/]+/, '~')}</p>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-400 flex-shrink-0">
-                      <span>{formatSize(file.size)}</span>
-                      <span className="flex items-center gap-1"><Clock size={10} />{formatDate(new Date(file.modified))}</span>
-                      <span className={`px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color} font-semibold uppercase text-[9px]`}>
-                        {file.ext.slice(1)}
-                      </span>
-                    </div>
-                    <button onClick={() => window.open(api.localFileUrl(file.path), '_blank')}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg transition ml-2"
-                    >
-                      <FolderOpen size={12} /> Open
-                    </button>
-                    <button onClick={() => window.open(api.localFileUrl(file.path), '_blank')}
-                      title="Open externally"
-                      className="p-1.5 text-gray-400 hover:text-gray-600 transition"
-                    >
-                      <ExternalLink size={13} />
-                    </button>
-                  </div>
-                ))}
+          {!loading && myFiles.length > 0 && viewMode === 'grid' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {myFiles.map(file => (
+                <FileCard key={file.id} file={file} cfg={cfg} Icon={Icon}
+                  renaming={renaming} renameValue={renameValue}
+                  setRenaming={setRenaming} setRenameValue={setRenameValue}
+                  menuOpen={menuOpen} setMenuOpen={setMenuOpen}
+                  onOpen={() => openFile(file)}
+                  onRename={() => startRename(file)}
+                  onRenameCommit={() => commitRename(file.id)}
+                  onDelete={() => { deleteFile(file.id); setMenuOpen(null) }}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && myFiles.length > 0 && viewMode === 'list' && (
+            <FileListTable files={myFiles} cfg={cfg} Icon={Icon}
+              renaming={renaming} renameValue={renameValue}
+              setRenaming={setRenaming} setRenameValue={setRenameValue}
+              menuOpen={menuOpen} setMenuOpen={setMenuOpen}
+              onOpen={openFile}
+              onRename={startRename}
+              onRenameCommit={commitRename}
+              onDelete={(id) => { deleteFile(id); setMenuOpen(null) }}
+            />
+          )}
+        </section>
+
+        {/* On Your Computer */}
+        {myLocalFiles.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <HardDrive size={13} className="text-gray-400" />
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">On Your Computer</h2>
+                <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{myLocalFiles.length}</span>
               </div>
-            )}
-          </>
+              <button onClick={() => scan()} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition">
+                <RefreshCw size={11} className={localLoading ? 'animate-spin' : ''} />
+                Rescan
+              </button>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {myLocalFiles.map((file, i) => (
+                <button key={file.path}
+                  onClick={() => openLocalFile(file)}
+                  disabled={importing === file.path}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition text-left group ${i < myLocalFiles.length - 1 ? 'border-b border-gray-50' : ''}`}
+                >
+                  <div className={`w-7 h-7 ${cfg.bg} rounded-md flex items-center justify-center flex-shrink-0`}>
+                    <Icon size={13} className={cfg.color} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{file.path.replace(/\/Users\/[^/]+/, '~')}</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 text-[10px] text-gray-400">
+                    <span>{formatSize(file.size)}</span>
+                    <span className={`px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color} font-medium uppercase text-[9px]`}>
+                      {file.ext.slice(1)}
+                    </span>
+                    {importing === file.path
+                      ? <Loader2 size={12} className="animate-spin text-indigo-500" />
+                      : <ArrowUpRight size={12} className="text-gray-300 group-hover:text-gray-500 transition" />}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
         )}
       </div>
 

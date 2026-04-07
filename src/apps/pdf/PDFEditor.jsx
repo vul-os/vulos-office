@@ -161,8 +161,26 @@ export default function PDFEditor() {
     }
   }, [showToast])
 
-  // Auto-load from router state (e.g. opened from local files scan)
+  // Auto-load from sessionStorage (set by importFile.js) or router state
   useEffect(() => {
+    const pending = sessionStorage.getItem('pendingPDF')
+    if (pending) {
+      sessionStorage.removeItem('pendingPDF')
+      try {
+        const { name, url, data } = JSON.parse(pending)
+        if (url) {
+          loadPDFFromUrl(url, name)
+        } else if (data) {
+          // base64 encoded bytes
+          const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0))
+          const file = new File([bytes], name, { type: 'application/pdf' })
+          loadPDF(file)
+        }
+      } catch (e) {
+        console.error('Failed to load pending PDF', e)
+      }
+      return
+    }
     const { localFileUrl, localFileName } = location.state || {}
     if (localFileUrl) loadPDFFromUrl(localFileUrl, localFileName)
   }, [])
@@ -678,7 +696,7 @@ export default function PDFEditor() {
       {/* ── TOP BAR ── */}
       <div style={{ background: '#0d1117', borderBottom: '1px solid rgba(255,255,255,.06)', height: 52, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px', flexShrink: 0, zIndex: 50 }}>
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/pdf-editor')}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: '#9ca3af', cursor: 'pointer', fontSize: 13 }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.07)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
