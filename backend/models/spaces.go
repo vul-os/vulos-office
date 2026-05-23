@@ -104,3 +104,59 @@ type SendMessageRequest struct {
 type EditMessageRequest struct {
 	Body string `json:"body" binding:"required"`
 }
+
+// ---- Reactions (OFFICE-SPACES-1) ----
+
+// Reaction records one emoji reaction by one user on one message.
+type Reaction struct {
+	MessageID string    `json:"message_id"`
+	Emoji     string    `json:"emoji"`
+	UserID    string    `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type ReactRequest struct {
+	Emoji     string `json:"emoji"     binding:"required"`
+	ChannelID string `json:"channel_id" binding:"required"`
+}
+
+// ---- Pins (OFFICE-SPACES-6) ----
+
+// PinnedMessage records a message pinned in a channel.
+type PinnedMessage struct {
+	ChannelID string    `json:"channel_id"`
+	MessageID string    `json:"message_id"`
+	AuthorID  string    `json:"author_id"` // author of the original message
+	Body      string    `json:"body"`      // body snapshot for the pinned panel
+	PinnedBy  string    `json:"pinned_by"`
+	PinnedAt  time.Time `json:"pinned_at"`
+}
+
+type PinRequest struct {
+	MessageID string `json:"message_id" binding:"required"`
+}
+
+// ---- User status (OFFICE-SPACES-4) ----
+
+// UserStatus persists per-user presence status.
+type UserStatus struct {
+	UserID     string    `json:"user_id"`
+	Status     string    `json:"status"`      // online | away | busy | dnd
+	CustomText string    `json:"custom_text"`
+	UntilUnix  int64     `json:"until_unix"`  // 0 = indefinite
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type SetStatusRequest struct {
+	Status     string `json:"status"      binding:"required"`
+	CustomText string `json:"custom_text"`
+	UntilUnix  int64  `json:"until_unix"`
+}
+
+// Channel extended with description (OFFICE-SPACES-9)
+type ChannelExt struct {
+	Channel
+	Description string `json:"description,omitempty"`
+	MemberCount int    `json:"member_count,omitempty"`
+	PinCount    int    `json:"pin_count,omitempty"`
+}

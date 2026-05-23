@@ -93,6 +93,10 @@ func main() {
 	protected.PUT("/files/:id/suggestions/:sid", suggestionHandler.Update)
 	protected.DELETE("/files/:id/suggestions/:sid", suggestionHandler.Delete)
 
+	// Docs export: PDF + DOCX server-side generation.
+	docsExportHandler := handlers.NewDocsExportHandler(store)
+	protected.GET("/files/:id/export", docsExportHandler.Export)
+
 	uploadHandler := handlers.NewUploadHandler(cfg)
 	protected.POST("/upload", uploadHandler.Upload)
 	api.GET("/uploads/:filename", uploadHandler.Serve)
@@ -140,6 +144,10 @@ func main() {
 	verifyHandler := handlers.NewVerifyHandler(store)
 	api.POST("/sign/verify", verifyHandler.Verify)
 
+	// SLIDES-07: slide deck PDF/PPTX export.
+	slidesExportHandler := handlers.NewSlidesExportHandler(store)
+	protected.GET("/slides/:id/export", slidesExportHandler.Export)
+
 	// OFFICE-65: scheduled meeting rooms.
 	meetingHandler := handlers.NewMeetingHandler(store)
 	protected.POST("/meetings", meetingHandler.Create)
@@ -149,8 +157,14 @@ func main() {
 	// Join is public — external invitees follow a bare link with no Vulos account.
 	api.GET("/meetings/:id/join", meetingHandler.Join)
 
+	// Sheets XLSX import/export endpoints.
+	sheetsHandler := handlers.NewSheetsHandler(store)
+	protected.POST("/sheets/:id/import", sheetsHandler.Import)
+	protected.GET("/sheets/:id/export", sheetsHandler.Export)
+
 	// OFFICE-60/61: Vulos Spaces — channels, DMs, threads, messages (CRDT-synced).
-	forumHandler := handlers.NewSpacesHandler()
+	// OFFICE-SPACES-1/4/5/6: reactions, status, search, pins (additive via SpacesHandlerExt).
+	forumHandler := handlers.NewSpacesHandlerExt()
 	protected.GET("/spaces/channels", forumHandler.ListChannels)
 	protected.POST("/spaces/channels", forumHandler.CreateChannel)
 	protected.POST("/spaces/channels/:channelId/join", forumHandler.JoinChannel)
@@ -163,6 +177,19 @@ func main() {
 	protected.GET("/spaces/channels/:channelId/read", forumHandler.GetReadState)
 	protected.GET("/spaces/channels/:channelId/ops", forumHandler.ExportOps)
 	protected.POST("/spaces/ops", forumHandler.MergeOps)
+	// Reactions (OFFICE-SPACES-1)
+	protected.GET("/spaces/channels/:channelId/reactions", forumHandler.ListReactions)
+	protected.POST("/spaces/messages/:msgId/react", forumHandler.React)
+	protected.DELETE("/spaces/messages/:msgId/react", forumHandler.Unreact)
+	// Pins (OFFICE-SPACES-6)
+	protected.GET("/spaces/channels/:channelId/pins", forumHandler.ListPins)
+	protected.POST("/spaces/channels/:channelId/pins", forumHandler.PinMessage)
+	protected.DELETE("/spaces/channels/:channelId/pins/:msgId", forumHandler.UnpinMessage)
+	// User status (OFFICE-SPACES-4)
+	protected.PUT("/spaces/users/me/status", forumHandler.SetStatus)
+	protected.GET("/spaces/users/:userId/status", forumHandler.GetStatus)
+	// Search (OFFICE-SPACES-5)
+	protected.GET("/spaces/channels/:channelId/search", forumHandler.SearchMessages)
 
 	// Serve embedded frontend (SPA fallback to index.html)
 	staticFS, err := fs.Sub(distFS, "dist")

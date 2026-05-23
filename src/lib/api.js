@@ -103,6 +103,40 @@ export const api = {
   spacesExportOps: (channelId, afterClock = '') =>
     request(`/spaces/channels/${channelId}/ops${afterClock ? `?after=${encodeURIComponent(afterClock)}` : ''}`),
 
+  // Reactions
+  spacesListReactions: (channelId) => request(`/spaces/channels/${channelId}/reactions`),
+  spacesReact: (channelId, msgId, emoji) =>
+    request(`/spaces/messages/${msgId}/react`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji, channel_id: channelId }),
+    }),
+  spacesUnreact: (channelId, msgId, emoji) =>
+    request(`/spaces/messages/${msgId}/react`, {
+      method: 'DELETE',
+      body: JSON.stringify({ emoji, channel_id: channelId }),
+    }),
+
+  // Pins
+  spacesPinsList: (channelId) => request(`/spaces/channels/${channelId}/pins`),
+  spacesPinMessage: (channelId, msgId) =>
+    request(`/spaces/channels/${channelId}/pins`, {
+      method: 'POST',
+      body: JSON.stringify({ message_id: msgId }),
+    }),
+  spacesUnpinMessage: (channelId, msgId) =>
+    request(`/spaces/channels/${channelId}/pins/${msgId}`, { method: 'DELETE' }),
+
+  // User status
+  spacesSetStatus: (status, customText, untilUnix = 0) =>
+    request('/spaces/users/me/status', {
+      method: 'PUT',
+      body: JSON.stringify({ status, custom_text: customText, until_unix: untilUnix }),
+    }),
+
+  // Channel search
+  spacesSearch: (channelId, q) =>
+    request(`/spaces/channels/${channelId}/search?q=${encodeURIComponent(q)}`),
+
   // OFFICE-41: signing envelope CRUD
   listEnvelopes: () => request('/envelopes'),
   getEnvelope: (id) => request(`/envelopes/${id}`),
@@ -121,6 +155,15 @@ export const api = {
     request(`/sign/${envelopeId}/cancel`, { method: 'POST', body: '{}' }),
   signerDecline: (token) =>
     request(`/sign/${token}/decline`, { method: 'POST', body: '{}' }),
+
+  // Docs export: returns a Blob for download (PDF or DOCX)
+  exportDoc: async (fileId, format) => {
+    const res = await fetch(`${BASE}/files/${fileId}/export?format=${encodeURIComponent(format)}`, {
+      credentials: 'include',
+    })
+    if (!res.ok) throw new Error(`Export failed: ${res.statusText}`)
+    return res.blob()
+  },
 
   uploadImage: async (file) => {
     const form = new FormData()

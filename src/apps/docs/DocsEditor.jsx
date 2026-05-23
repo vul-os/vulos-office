@@ -20,7 +20,9 @@ import TaskItem from '@tiptap/extension-task-item'
 import CharacterCount from '@tiptap/extension-character-count'
 import Placeholder from '@tiptap/extension-placeholder'
 import Typography from '@tiptap/extension-typography'
-import { ArrowLeft, Save, Loader2, AlertCircle, History, Users, MessageSquare, Activity, GitBranch, Check, Circle } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, AlertCircle, History, Users, MessageSquare, Activity, GitBranch, Check, Circle, Search, Type as TypeIcon } from 'lucide-react'
+import FindReplace from './components/FindReplace'
+import WordCountModal from './components/WordCountModal'
 import { useFilesStore, getSaveState, onSaveStateChange } from '../../store/filesStore'
 import { api } from '../../lib/api'
 import { readDraft, clearDraft } from '../../lib/draftStore'
@@ -174,6 +176,12 @@ export default function DocsEditor() {
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  // Find/Replace
+  const [findMode, setFindMode] = useState(null) // null | 'find' | 'replace'
+  // Word count modal
+  const [showWordCount, setShowWordCount] = useState(false)
+  // Page count (debounced)
+  const [pageCount, setPageCount] = useState(1)
   // OFFICE-27: suggestion / track-changes mode
   const [suggestionMode, setSuggestionMode] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -485,6 +493,51 @@ export default function DocsEditor() {
   const broadcastDocCursorRef = useRef(null)
   broadcastDocCursorRef.current = broadcastDocCursor
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod) return
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        setFindMode((m) => (m ? null : 'find'))
+        return
+      }
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault()
+        setFindMode((m) => (m === 'replace' ? null : 'replace'))
+        return
+      }
+      if (e.key === 'k' || e.key === 'K') {
+        // Handled by TipTap shortcut, but ensure link popover is triggered
+        // if editor has text selected — nothing to override here since TipTap's
+        // Link extension binds Cmd+K by default.
+        return
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
+  // ── Page count (debounced update every 200ms) ─────────────────────────────
+  const pageCountTimer = useRef(null)
+  useEffect(() => {
+    if (!editor) return
+    const update = () => {
+      clearTimeout(pageCountTimer.current)
+      pageCountTimer.current = setTimeout(() => {
+        const words = editor.storage.characterCount?.words() ?? 0
+        setPageCount(Math.max(1, Math.ceil(words / WORDS_PER_PAGE)))
+      }, 200)
+    }
+    editor.on('update', update)
+    update() // initial
+    return () => {
+      editor.off('update', update)
+      clearTimeout(pageCountTimer.current)
+    }
+  }, [editor])
+
   const doSave = useCallback(async (retryNum = 0) => {
     if (!editor || !id) return
     try {
@@ -531,6 +584,8 @@ export default function DocsEditor() {
 
   const wordCount = editor?.storage.characterCount?.words() ?? 0
   const charCount = editor?.storage.characterCount?.characters() ?? 0
+  // Estimate page count (debounced in onUpdate, mirrors WordCountModal logic)
+  const WORDS_PER_PAGE = 250
 
   // Discreet save status — a meta-line, never a banner.
   // We render an icon + text inline with the title; colour is intentionally
@@ -645,6 +700,11 @@ export default function DocsEditor() {
         }
         actions={
           <>
+            <Tooltip label="Find (Cmd+F)">
+              <IconButton size="sm" active={!!findMode} onClick={() => setFindMode((m) => (m ? null : 'find'))}>
+                <Search size={14} />
+              </IconButton>
+            </Tooltip>
             <Tooltip label="Version history">
               <IconButton size="sm" active={showHistory} onClick={() => setShowHistory((v) => !v)}>
                 <History size={14} />
@@ -721,7 +781,15 @@ export default function DocsEditor() {
             - subtle 1-px line on the page edge, no heavy shadow
             - .paper-grain adds a near-imperceptible letterpress tooth
         */}
-        <div className="flex-1 overflow-auto px-6 py-10">
+        <div className="flex-1 overflow-auto px-6 py-10 relative">
+          {/* Find/Replace floating bar */}
+          {findMode && (
+            <FindReplace
+              editor={editor}
+              mode={findMode}
+              onClose={() => setFindMode(null)}
+            />
+          )}
           <article
             className="paper-grain mx-auto bg-paper border border-line rounded-lg shadow-e1 px-14 py-16"
             style={{ maxWidth: '760px' }}
@@ -795,10 +863,24 @@ export default function DocsEditor() {
       </div>
 
       <footer className="flex items-center justify-end gap-4 px-4 h-7 bg-paper border-t border-line text-2xs text-ink-faint tracking-tightish">
-        <span>{wordCount} words</span>
-        <span className="opacity-40">·</span>
-        <span>{charCount} characters</span>
+        <button
+          onClick={() => setShowWordCount(true)}
+          title="Word count details"
+          className="flex items-center gap-2 hover:text-ink transition-colors"
+          aria-label="Open word count details"
+        >
+          <span>{wordCount} words</span>
+          <span className="opacity-40">·</span>
+          <span>{pageCount} {pageCount === 1 ? 'page' : 'pages'}</span>
+          <span className="opacity-40">·</span>
+          <span>{charCount} characters</span>
+        </button>
       </footer>
+
+      {/* Word count detail modal */}
+      {showWordCount && (
+        <WordCountModal editor={editor} onClose={() => setShowWordCount(false)} />
+      )}
     </div>
   )
 }

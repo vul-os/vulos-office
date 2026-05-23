@@ -8,11 +8,19 @@
  *   - Comfortable message rows: 8px vertical padding, 32px avatar, no hover-flash.
  *   - Own messages get a quiet accent-tint left-rail (subtle).
  *   - Status indicators (edited, deleted) use sage/honey/ink-faint, never green/red.
+ *   - Reactions row below message body.
+ *   - Right-click context menu: Edit / Delete / Pin / React.
  */
-import { useState } from 'react'
-import { MoreHorizontal, MessageSquare, Pencil, Trash2, X, Check } from 'lucide-react'
+import { useState, useRef, useCallback } from 'react'
+import {
+  MoreHorizontal, MessageSquare, Pencil, Trash2, X, Check, Smile, Pin,
+} from 'lucide-react'
 import { STATE_DELETED, STATE_EDITED } from '../../lib/crdt/messages.js'
 import { PresenceDot } from '../../components/PresenceBar.jsx'
+import RichMessage from './RichMessage.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
+import { PinBadge } from './PinnedPanel.jsx'
+import { api } from '../../lib/api.js'
 
 function formatTime(ts) {
   if (!ts) return ''
@@ -30,7 +38,6 @@ function formatDate(ts) {
 
 function Avatar({ name, presencePeer, size = 32 }) {
   const initials = (name || '?')[0].toUpperCase()
-  // Warm palette tints (no generic indigo/emerald/rose).
   const tints = ['#0f6a6c', '#4f7a4d', '#c08436', '#b8453a', '#4a6b8a', '#6e5b8a']
   const idx = (name?.charCodeAt(0) || 0) % tints.length
   const bg = presencePeer?.color || tints[idx]
@@ -54,10 +61,81 @@ function Avatar({ name, presencePeer, size = 32 }) {
   )
 }
 
-function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, roster = [] }) {
+// ---- ReactionBar ---------------------------------------------------------------
+
+/**
+ * ReactionBar — shows existing reactions and allows adding/toggling.
+ *
+ * Props:
+ *   reactions    — { [emoji]: { count, userIds: string[] } }
+ *   currentUser  — string
+ *   onToggle     — (emoji) => void
+ *   onAdd        — called when Add Reaction button clicked
+ */
+function ReactionBar({ reactions = {}, currentUser, onToggle, onAdd }) {
+  const [whoModal, setWhoModal] = useState(null) // emoji → show who reacted
+  const entries = Object.entries(reactions)
+  if (entries.length === 0 && !onAdd) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+      {entries.map(([emoji, { count, userIds }]) => {
+        const mine = userIds.includes(currentUser)
+        return (
+          <div key={emoji} className="relative">
+            <button
+              type="button"
+              onClick={() => onToggle(emoji)}
+              onMouseEnter={() => setWhoModal(emoji)}
+              onMouseLeave={() => setWhoModal(null)}
+              className={[
+                'flex items-center gap-1 text-xs px-2 py-0.5 rounded-pill border transition-colors duration-fast',
+                mine
+                  ? 'bg-accent-tint border-accent text-ink'
+                  : 'bg-bg-elev2 border-line text-ink-muted hover:border-accent hover:bg-accent-tint',
+              ].join(' ')}
+              aria-label={`${emoji} reaction, ${count} people`}
+            >
+              <span>{emoji}</span>
+              <span className="tabular-nums font-medium">{count}</span>
+            </button>
+            {whoModal === emoji && (
+              <div className="absolute bottom-full mb-1 left-0 z-50 bg-ink text-paper rounded-sm px-2 py-1 text-2xs shadow-e2 whitespace-nowrap pointer-events-none animate-fade-in">
+                {userIds.slice(0, 8).join(', ')}
+                {userIds.length > 8 ? ` +${userIds.length - 8} more` : ''}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Add reaction button — shows only on hover via parent group */}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-pill border border-transparent text-ink-faint hover:border-line hover:bg-bg-elev2 transition-colors opacity-0 group-hover:opacity-100"
+        title="Add reaction"
+        aria-label="Add reaction"
+      >
+        <Smile size={11} />
+      </button>
+    </div>
+  )
+}
+
+// ---- MessageItem ---------------------------------------------------------------
+
+function MessageItem({
+  msg, replies, onReply, onEdit, onDelete, onPin, onUnpin,
+  currentUser, roster = [], isPinned = false,
+  reactions = {}, onReact,
+}) {
   const [showMenu, setShowMenu] = useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(msg.body)
+  const emojiAnchorRef = useRef(null)
+  const msgRef = useRef(null)
 
   const isOwn = msg.author_id === currentUser
   const isDeleted = msg.state === STATE_DELETED
@@ -73,8 +151,20 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
     (p) => p.accountId === msg.author_id || p.displayName === msg.author_id,
   )
 
+  // Context menu (right-click)
+  function onContextMenu(e) {
+    e.preventDefault()
+    setShowMenu(true)
+  }
+
+  // Close menu on outside click
+  const closeMenu = useCallback(() => setShowMenu(false), [])
+
   return (
     <div
+      ref={msgRef}
+      data-msg-id={msg.id}
+      onContextMenu={onContextMenu}
       className={[
         'group relative flex gap-3 px-4 py-2 transition-colors duration-fast ease-out',
         isOwn ? 'hover:bg-accent-tint/60' : 'hover:bg-bg-elev2',
@@ -99,6 +189,7 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
           {msg.state === STATE_EDITED && (
             <span className="text-2xs text-ink-faint italic">edited</span>
           )}
+          {isPinned && <PinBadge />}
         </div>
 
         {isDeleted ? (
@@ -136,9 +227,24 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
             </button>
           </div>
         ) : (
-          <p className="text-sm text-ink whitespace-pre-wrap break-words leading-snug">
-            {msg.body}
-          </p>
+          <RichMessage body={msg.body} members={roster} />
+        )}
+
+        {/* Attachment */}
+        {msg.attachment && !isDeleted && (
+          <div className="mt-1">
+            {/* Rendered by parent via AttachmentPreview if needed */}
+          </div>
+        )}
+
+        {/* Reactions */}
+        {!isDeleted && (
+          <ReactionBar
+            reactions={reactions}
+            currentUser={currentUser}
+            onToggle={(emoji) => onReact(msg.id, emoji)}
+            onAdd={() => setShowEmojiPicker(true)}
+          />
         )}
 
         {/* Thread affordance */}
@@ -164,9 +270,31 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
         )}
       </div>
 
-      {/* Own-message context menu */}
-      {isOwn && !isDeleted && (
-        <div className="relative flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
+      {/* Hover action bar */}
+      {!isDeleted && (
+        <div className="relative flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
+          {/* React */}
+          <div className="relative" ref={emojiAnchorRef}>
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker((v) => !v)}
+              className="p-1 rounded-sm text-ink-faint hover:text-ink hover:bg-accent-tint transition-colors"
+              title="React"
+              aria-label="Add reaction"
+            >
+              <Smile size={14} />
+            </button>
+            {showEmojiPicker && (
+              <div className="absolute right-0 bottom-full mb-1 z-50">
+                <EmojiPicker
+                  onPick={(emoji) => { onReact(msg.id, emoji); setShowEmojiPicker(false) }}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Message menu */}
           <button
             type="button"
             onClick={() => setShowMenu(!showMenu)}
@@ -177,21 +305,49 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
             <MoreHorizontal size={14} />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-7 z-10 bg-paper border border-line rounded-md shadow-e2 py-1 min-w-[140px] animate-scale-in">
-              <button
-                type="button"
-                onClick={() => { setEditing(true); setEditBody(msg.body); setShowMenu(false) }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-ink-muted hover:bg-accent-tint hover:text-ink transition-colors"
-              >
-                <Pencil size={11} /> Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => { onDelete(msg.id); setShowMenu(false) }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-danger hover:bg-danger-bg transition-colors"
-              >
-                <Trash2 size={11} /> Delete
-              </button>
+            <div
+              className="absolute right-0 top-7 z-10 bg-paper border border-line rounded-md shadow-e2 py-1 min-w-[160px] animate-scale-in"
+              onMouseLeave={closeMenu}
+            >
+              {!isDeleted && (
+                <>
+                  {isOwn && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditing(true); setEditBody(msg.body); setShowMenu(false) }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-ink-muted hover:bg-accent-tint hover:text-ink transition-colors"
+                    >
+                      <Pencil size={11} /> Edit
+                    </button>
+                  )}
+                  {!isPinned ? (
+                    <button
+                      type="button"
+                      onClick={() => { onPin(msg); setShowMenu(false) }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-ink-muted hover:bg-accent-tint hover:text-ink transition-colors"
+                    >
+                      <Pin size={11} /> Pin to channel
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { onUnpin(msg.id); setShowMenu(false) }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-ink-muted hover:bg-accent-tint hover:text-ink transition-colors"
+                    >
+                      <Pin size={11} /> Unpin
+                    </button>
+                  )}
+                  {isOwn && (
+                    <button
+                      type="button"
+                      onClick={() => { onDelete(msg.id); setShowMenu(false) }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-danger hover:bg-danger-bg transition-colors"
+                    >
+                      <Trash2 size={11} /> Delete
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -200,7 +356,22 @@ function MessageItem({ msg, replies, onReply, onEdit, onDelete, currentUser, ros
   )
 }
 
-export default function MessageList({ messages, onReply, onEdit, onDelete, currentUser, roster = [] }) {
+// ---- MessageList (exported) ---------------------------------------------------
+
+export default function MessageList({
+  messages,
+  onReply,
+  onEdit,
+  onDelete,
+  onPin,
+  onUnpin,
+  onReact,
+  currentUser,
+  roster = [],
+  pinnedIds = new Set(),
+  reactions = {},
+  highlightId = null,
+}) {
   if (!messages || messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-ink-faint text-sm bg-bg">
@@ -227,7 +398,10 @@ export default function MessageList({ messages, onReply, onEdit, onDelete, curre
         const showDate = date !== lastDate
         lastDate = date
         return (
-          <div key={msg.id}>
+          <div
+            key={msg.id}
+            className={highlightId === msg.id ? 'ring-2 ring-accent ring-inset rounded-sm' : ''}
+          >
             {showDate && (
               <div className="flex items-center gap-3 px-4 py-3">
                 <div className="flex-1 h-px bg-line" />
@@ -246,8 +420,13 @@ export default function MessageList({ messages, onReply, onEdit, onDelete, curre
               onReply={onReply}
               onEdit={onEdit}
               onDelete={onDelete}
+              onPin={onPin}
+              onUnpin={onUnpin}
+              onReact={onReact || (() => {})}
               currentUser={currentUser}
               roster={roster}
+              isPinned={pinnedIds.has(msg.id)}
+              reactions={reactions[msg.id] || {}}
             />
           </div>
         )
