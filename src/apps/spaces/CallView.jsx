@@ -1,5 +1,5 @@
 /**
- * CallView — Forum 1:1 + group voice/video call surface.
+ * CallView — Vulos Spaces 1:1 + group voice/video call surface.
  *
  * Design pass:
  *   - Backdrop: warm ink (`bg-ink` paired with paper text) rather than slate.
@@ -10,7 +10,7 @@
  *
  * Props:
  *   sessionId    — fabric session id for this call (channel id, DM id, room id)
- *   channelId    — Forum channel/thread id for persisted in-call chat (OFFICE-66)
+ *   channelId    — Spaces channel/thread id for persisted in-call chat (OFFICE-66)
  *   threadParent — optional thread-parent message id for meeting-room threads
  *   identity     — { displayName, vumail, color }
  *   video        — start with camera on (default true)

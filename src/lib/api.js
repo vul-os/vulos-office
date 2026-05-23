@@ -74,34 +74,34 @@ export const api = {
   scanLocalFiles: () => request('/local-files'),
   localFileUrl: (path) => `${BASE}/local-files/serve?path=${encodeURIComponent(path)}`,
 
-  // OFFICE-60/61: Forum API
-  forumListChannels: () => request('/forum/channels'),
-  forumCreateChannel: (name, type, members = []) =>
-    request('/forum/channels', { method: 'POST', body: JSON.stringify({ name, type, members }) }),
-  forumJoinChannel: (channelId) =>
-    request(`/forum/channels/${channelId}/join`, { method: 'POST' }),
-  forumListMembers: (channelId) => request(`/forum/channels/${channelId}/members`),
-  forumListMessages: (channelId) => request(`/forum/channels/${channelId}/messages`),
-  forumSendMessage: (channelId, body, threadParent = '') =>
-    request(`/forum/channels/${channelId}/messages`, {
+  // OFFICE-60/61: Vulos Spaces API
+  spacesListChannels: () => request('/spaces/channels'),
+  spacesCreateChannel: (name, type, members = []) =>
+    request('/spaces/channels', { method: 'POST', body: JSON.stringify({ name, type, members }) }),
+  spacesJoinChannel: (channelId) =>
+    request(`/spaces/channels/${channelId}/join`, { method: 'POST' }),
+  spacesListMembers: (channelId) => request(`/spaces/channels/${channelId}/members`),
+  spacesListMessages: (channelId) => request(`/spaces/channels/${channelId}/messages`),
+  spacesSendMessage: (channelId, body, threadParent = '') =>
+    request(`/spaces/channels/${channelId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ body, thread_parent: threadParent }),
     }),
-  forumEditMessage: (channelId, msgId, body) =>
-    request(`/forum/channels/${channelId}/messages/${msgId}`, {
+  spacesEditMessage: (channelId, msgId, body) =>
+    request(`/spaces/channels/${channelId}/messages/${msgId}`, {
       method: 'PUT',
       body: JSON.stringify({ body }),
     }),
-  forumDeleteMessage: (channelId, msgId) =>
-    request(`/forum/channels/${channelId}/messages/${msgId}`, { method: 'DELETE' }),
-  forumMarkRead: (channelId, clock) =>
-    request(`/forum/channels/${channelId}/read`, {
+  spacesDeleteMessage: (channelId, msgId) =>
+    request(`/spaces/channels/${channelId}/messages/${msgId}`, { method: 'DELETE' }),
+  spacesMarkRead: (channelId, clock) =>
+    request(`/spaces/channels/${channelId}/read`, {
       method: 'POST',
       body: JSON.stringify({ clock }),
     }),
-  forumGetReadState: (channelId) => request(`/forum/channels/${channelId}/read`),
-  forumExportOps: (channelId, afterClock = '') =>
-    request(`/forum/channels/${channelId}/ops${afterClock ? `?after=${encodeURIComponent(afterClock)}` : ''}`),
+  spacesGetReadState: (channelId) => request(`/spaces/channels/${channelId}/read`),
+  spacesExportOps: (channelId, afterClock = '') =>
+    request(`/spaces/channels/${channelId}/ops${afterClock ? `?after=${encodeURIComponent(afterClock)}` : ''}`),
 
   // OFFICE-41: signing envelope CRUD
   listEnvelopes: () => request('/envelopes'),

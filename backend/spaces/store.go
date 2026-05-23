@@ -1,4 +1,4 @@
-// Package forum implements the CRDT-synced message store for Vulos-Forum
+// Package spaces implements the CRDT-synced message store for Vulos Spaces
 // (channels, DMs, threads, messages).  It is pure-Go with no CGO.
 //
 // Convergence model
@@ -15,7 +15,7 @@
 //
 // ApplyOp / MergeOps implement the merge function.  They are safe to call
 // from multiple goroutines.
-package forum
+package spaces
 
 import (
 	"fmt"
@@ -95,7 +95,7 @@ func (h *hlc) Receive(remote string) {
 }
 
 // -------------------------------------------------------------------------
-// ForumStore – in-memory CRDT replica with pluggable persistence
+// SpacesStore – in-memory CRDT replica with pluggable persistence
 // -------------------------------------------------------------------------
 
 // Persister is the interface the store calls to durably write state.
@@ -126,8 +126,8 @@ type Persister interface {
 	GetReadState(accountID, channelID string) (*models.ReadState, error)
 }
 
-// ForumStore is a CRDT message store for one node/replica.
-type ForumStore struct {
+// SpacesStore is a CRDT message store for one node/replica.
+type SpacesStore struct {
 	mu      sync.RWMutex
 	clock   *hlc
 	nodeID  string
@@ -139,9 +139,9 @@ type ForumStore struct {
 	messages map[string]map[string]*models.Message  // channelID → msgID → Message
 }
 
-// Open creates a ForumStore, loads state from the Persister, and is ready to use.
-func Open(nodeID string, p Persister) (*ForumStore, error) {
-	s := &ForumStore{
+// Open creates a SpacesStore, loads state from the Persister, and is ready to use.
+func Open(nodeID string, p Persister) (*SpacesStore, error) {
+	s := &SpacesStore{
 		clock:    newHLC(nodeID),
 		nodeID:   nodeID,
 		persist:  p,
@@ -155,16 +155,16 @@ func Open(nodeID string, p Persister) (*ForumStore, error) {
 	return s, nil
 }
 
-func (s *ForumStore) load() error {
+func (s *SpacesStore) load() error {
 	chs, err := s.persist.ListChannels()
 	if err != nil {
-		return fmt.Errorf("forum load channels: %w", err)
+		return fmt.Errorf("spaces load channels: %w", err)
 	}
 	for _, ch := range chs {
 		s.channels[ch.ID] = ch
 		mems, err := s.persist.ListMemberships(ch.ID)
 		if err != nil {
-			return fmt.Errorf("forum load memberships %s: %w", ch.ID, err)
+			return fmt.Errorf("spaces load memberships %s: %w", ch.ID, err)
 		}
 		s.members[ch.ID] = make(map[string]*models.Membership)
 		for _, m := range mems {
@@ -172,7 +172,7 @@ func (s *ForumStore) load() error {
 		}
 		msgs, err := s.persist.ListMessages(ch.ID)
 		if err != nil {
-			return fmt.Errorf("forum load messages %s: %w", ch.ID, err)
+			return fmt.Errorf("spaces load messages %s: %w", ch.ID, err)
 		}
 		s.messages[ch.ID] = make(map[string]*models.Message)
 		for _, msg := range msgs {
@@ -186,7 +186,7 @@ func (s *ForumStore) load() error {
 // Channel management
 // -------------------------------------------------------------------------
 
-func (s *ForumStore) CreateChannel(name string, ctype models.ChannelType, createdBy string) (*models.Channel, error) {
+func (s *SpacesStore) CreateChannel(name string, ctype models.ChannelType, createdBy string) (*models.Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -210,7 +210,7 @@ func (s *ForumStore) CreateChannel(name string, ctype models.ChannelType, create
 // CreateChannelWithID creates a channel with a caller-supplied ID.
 // Used when bootstrapping a replica that already knows the channel id from
 // a peer (e.g. in tests or after initial channel-sync).
-func (s *ForumStore) CreateChannelWithID(id, name string, ctype models.ChannelType, createdBy string) (*models.Channel, error) {
+func (s *SpacesStore) CreateChannelWithID(id, name string, ctype models.ChannelType, createdBy string) (*models.Channel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.channels[id]; ok {
@@ -233,14 +233,14 @@ func (s *ForumStore) CreateChannelWithID(id, name string, ctype models.ChannelTy
 	return ch, nil
 }
 
-func (s *ForumStore) GetChannel(id string) (*models.Channel, bool) {
+func (s *SpacesStore) GetChannel(id string) (*models.Channel, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	ch, ok := s.channels[id]
 	return ch, ok
 }
 
-func (s *ForumStore) ListChannels() []*models.Channel {
+func (s *SpacesStore) ListChannels() []*models.Channel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*models.Channel, 0, len(s.channels))
@@ -254,7 +254,7 @@ func (s *ForumStore) ListChannels() []*models.Channel {
 // Membership management
 // -------------------------------------------------------------------------
 
-func (s *ForumStore) AddMember(channelID, accountID string) (*models.Membership, error) {
+func (s *SpacesStore) AddMember(channelID, accountID string) (*models.Membership, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -280,7 +280,7 @@ func (s *ForumStore) AddMember(channelID, accountID string) (*models.Membership,
 	return m, nil
 }
 
-func (s *ForumStore) ListMembers(channelID string) []*models.Membership {
+func (s *SpacesStore) ListMembers(channelID string) []*models.Membership {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*models.Membership, 0)
@@ -294,7 +294,7 @@ func (s *ForumStore) ListMembers(channelID string) []*models.Membership {
 // Message operations (local sends)
 // -------------------------------------------------------------------------
 
-func (s *ForumStore) SendMessage(channelID, authorID, body, threadParent string) (*models.Message, error) {
+func (s *SpacesStore) SendMessage(channelID, authorID, body, threadParent string) (*models.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -325,7 +325,7 @@ func (s *ForumStore) SendMessage(channelID, authorID, body, threadParent string)
 	return msg, nil
 }
 
-func (s *ForumStore) EditMessage(channelID, msgID, newBody string) (*models.Message, error) {
+func (s *SpacesStore) EditMessage(channelID, msgID, newBody string) (*models.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -358,7 +358,7 @@ func (s *ForumStore) EditMessage(channelID, msgID, newBody string) (*models.Mess
 	return &updated, nil
 }
 
-func (s *ForumStore) DeleteMessage(channelID, msgID string) error {
+func (s *SpacesStore) DeleteMessage(channelID, msgID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -387,7 +387,7 @@ func (s *ForumStore) DeleteMessage(channelID, msgID string) error {
 
 // ListMessages returns messages in a channel sorted by SeqClock ascending.
 // Thread replies are included; callers may filter by ThreadParent.
-func (s *ForumStore) ListMessages(channelID string) []*models.Message {
+func (s *SpacesStore) ListMessages(channelID string) []*models.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	msgs := s.messages[channelID]
@@ -408,7 +408,7 @@ func (s *ForumStore) ListMessages(channelID string) []*models.Message {
 // MergeOps applies a batch of ops received from a peer.  It is idempotent
 // and commutative: applying the same ops in any order converges to the same
 // state.
-func (s *ForumStore) MergeOps(ops []*models.MessageOp) error {
+func (s *SpacesStore) MergeOps(ops []*models.MessageOp) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, op := range ops {
@@ -421,7 +421,7 @@ func (s *ForumStore) MergeOps(ops []*models.MessageOp) error {
 
 // ExportOps returns all ops for channelID with SeqClock > afterClock for
 // cold-joiner or catch-up sync.
-func (s *ForumStore) ExportOps(channelID, afterClock string) ([]*models.MessageOp, error) {
+func (s *SpacesStore) ExportOps(channelID, afterClock string) ([]*models.MessageOp, error) {
 	return s.persist.ListOps(channelID, afterClock)
 }
 
@@ -429,7 +429,7 @@ func (s *ForumStore) ExportOps(channelID, afterClock string) ([]*models.MessageO
 // internal helpers (caller must hold s.mu)
 // -------------------------------------------------------------------------
 
-func (s *ForumStore) applyLocal(op *models.MessageOp) error {
+func (s *SpacesStore) applyLocal(op *models.MessageOp) error {
 	if err := s.applyToIndex(op); err != nil {
 		return err
 	}
@@ -439,13 +439,13 @@ func (s *ForumStore) applyLocal(op *models.MessageOp) error {
 	return s.persist.AppendOp(op)
 }
 
-func (s *ForumStore) applyRemote(op *models.MessageOp) error {
+func (s *SpacesStore) applyRemote(op *models.MessageOp) error {
 	s.clock.Receive(op.Msg.SeqClock)
 	return s.applyLocal(op)
 }
 
 // applyToIndex applies the CRDT merge rule to the in-memory index.
-func (s *ForumStore) applyToIndex(op *models.MessageOp) error {
+func (s *SpacesStore) applyToIndex(op *models.MessageOp) error {
 	chID := op.ChannelID
 	if _, ok := s.channels[chID]; !ok {
 		// Auto-create a channel skeleton for the remote op so the store
@@ -509,7 +509,7 @@ func (s *ForumStore) applyToIndex(op *models.MessageOp) error {
 // ReadState helpers
 // -------------------------------------------------------------------------
 
-func (s *ForumStore) MarkRead(accountID, channelID, clock string) error {
+func (s *SpacesStore) MarkRead(accountID, channelID, clock string) error {
 	rs := &models.ReadState{
 		AccountID:    accountID,
 		ChannelID:    channelID,
@@ -519,7 +519,7 @@ func (s *ForumStore) MarkRead(accountID, channelID, clock string) error {
 	return s.persist.SaveReadState(rs)
 }
 
-func (s *ForumStore) GetReadState(accountID, channelID string) (*models.ReadState, error) {
+func (s *SpacesStore) GetReadState(accountID, channelID string) (*models.ReadState, error) {
 	return s.persist.GetReadState(accountID, channelID)
 }
 

@@ -1,9 +1,9 @@
 /**
  * src/lib/crdt/messages.js
  *
- * Browser-side CRDT message store for Vulos-Forum.
+ * Browser-side CRDT message store for Vulos Spaces.
  *
- * Mirrors the convergence model in backend/forum/store.go:
+ * Mirrors the convergence model in backend/spaces/store.go:
  *
  *   - Append    – insert if the message ID is unknown to this replica.
  *   - Edit      – LWW (last-write-wins by SeqClock) for the same message ID;
@@ -85,7 +85,7 @@ class HLC {
 }
 
 // ---------------------------------------------------------------------------
-// Op types (matches backend/models/forum.go MessageOpType)
+// Op types (matches backend/models/spaces.go MessageOpType)
 // ---------------------------------------------------------------------------
 
 export const OP_APPEND = 'append';
@@ -329,10 +329,10 @@ let _defaultStore = null;
  */
 export function getDefaultStore(opts = {}) {
   if (_defaultStore) return _defaultStore;
-  let nodeId = sessionStorage.getItem('forum_node_id');
+  let nodeId = sessionStorage.getItem('spaces_node_id');
   if (!nodeId) {
     nodeId = crypto.randomUUID().slice(0, 8);
-    sessionStorage.setItem('forum_node_id', nodeId);
+    sessionStorage.setItem('spaces_node_id', nodeId);
   }
   _defaultStore = new MessageStore(nodeId, opts);
   return _defaultStore;

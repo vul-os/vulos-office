@@ -27,7 +27,7 @@ type Op struct {
 
 // Doc is the document-level facade that ties one CRDT (text, grid, or
 // tree) to a Transport and a Bucket. It is what call-sites for
-// OFFICE-22 (Docs), OFFICE-23 (Sheets/Slides), and OFFICE-29 (Forum)
+// OFFICE-22 (Docs), OFFICE-23 (Sheets/Slides), and OFFICE-29 (Spaces)
 // will instantiate.
 //
 // Thread-safety: all public methods take an internal mutex. Op apply

@@ -1,6 +1,6 @@
 /**
- * ForumApp — Slack-equivalent surface: channels, DMs, threads.
- * Routes: /forum  /forum/:channelId
+ * SpacesApp — Vulos Spaces surface: channels, DMs, threads.
+ * Routes: /spaces  /spaces/:channelId
  *
  * Channel sidebar (public/private channels + DMs) + ChannelView message pane.
  * Backed by the CRDT message store (OFFICE-60); presence hooks are stubs
@@ -48,7 +48,7 @@ function CreateChannelModal({ open, onClose, onCreated }) {
     setLoading(true)
     setError(null)
     try {
-      const ch = await api.forumCreateChannel(n, type)
+      const ch = await api.spacesCreateChannel(n, type)
       onCreated(ch)
       onClose()
     } catch (err) {
@@ -128,7 +128,7 @@ function NewDMModal({ open, onClose, onCreated }) {
     setError(null)
     try {
       const dmName = ['me', r].sort().join('-')
-      const ch = await api.forumCreateChannel(dmName, 'dm', ['me', r])
+      const ch = await api.spacesCreateChannel(dmName, 'dm', ['me', r])
       onCreated(ch)
       onClose()
     } catch (err) {
@@ -169,7 +169,7 @@ function NewDMModal({ open, onClose, onCreated }) {
 // Sidebar
 // ---------------------------------------------------------------------------
 
-function ForumSidebar({
+function SpacesSidebar({
   channels, activeId, onSelect, onRefresh,
   roster, localStatus, localStatusText, onSetStatus,
 }) {
@@ -354,10 +354,10 @@ function ForumSidebar({
 }
 
 // ---------------------------------------------------------------------------
-// ForumApp — root component
+// SpacesApp — root component
 // ---------------------------------------------------------------------------
 
-export default function ForumApp() {
+export default function SpacesApp() {
   const { channelId } = useParams()
   const navigate = useNavigate()
   const [channels, setChannels] = useState([])
@@ -380,7 +380,7 @@ export default function ForumApp() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const chs = await api.forumListChannels()
+      const chs = await api.spacesListChannels()
       setChannels(chs || [])
       return chs || []
     } catch (e) {
@@ -398,14 +398,14 @@ export default function ForumApp() {
         if (found) setActiveChannel(found)
       } else if (chs.length > 0) {
         setActiveChannel(chs[0])
-        navigate(`/forum/${chs[0].id}`, { replace: true })
+        navigate(`/spaces/${chs[0].id}`, { replace: true })
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function selectChannel(ch) {
     setActiveChannel(ch)
-    navigate(`/forum/${ch.id}`)
+    navigate(`/spaces/${ch.id}`)
   }
 
   if (loading) {
@@ -426,7 +426,7 @@ export default function ForumApp() {
 
   return (
     <div className="flex flex-1 min-h-0 bg-bg">
-      <ForumSidebar
+      <SpacesSidebar
         channels={channels}
         activeId={activeChannel?.id}
         onSelect={selectChannel}

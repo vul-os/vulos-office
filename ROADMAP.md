@@ -191,7 +191,7 @@ identity ties to the **Vulos account / vumail**.
 
 ---
 
-## 4. Vulos-Forum — Team Chat, Calling, and Meetings
+## 4. Vulos Spaces — Team Chat, Calling, and Meetings
 
 The largest new pillar: a **Slack + Google-Meet equivalent** built directly on
 the peer fabric. Team channels, DMs, and threads for async work; presence and
@@ -199,7 +199,7 @@ status; and real-time **voice + video calling, screen-share, and scheduled
 meetings / meeting rooms** for synchronous work. Messaging syncs as CRDTs over
 the same bucket transport as the rest of Vulos; calling uses **WebRTC P2P with
 the Vulos relay/TURN as fallback** — the same fabric the OS uses for device
-routing. Vulos-Forum is how a team that already runs Vulos OS + Office stops
+routing. Vulos Spaces is how a team that already runs Vulos OS + Office stops
 paying for Slack and Zoom.
 
 ### Goals
@@ -208,7 +208,7 @@ paying for Slack and Zoom.
   is self-hosted and federates over the Vulos fabric between instances.
 - First-class real-time media: 1:1 and group voice/video, screen-share, and
   scheduled meeting rooms, all P2P-first with relay/TURN fallback.
-- One identity and one fabric across Office + Forum: the people you edit docs
+- One identity and one fabric across Office + Spaces: the people you edit docs
   with are the people you call, keyed to Vulos account / vumail.
 - No new central server: messages converge via CRDT/bucket sync, media via
   WebRTC + Vulos relay — reusing Sections 2 and the OS RELAY layer.
@@ -241,9 +241,9 @@ paying for Slack and Zoom.
   not v1.
 - **No giant-webinar scale** (thousands of viewers) in v1 — target team-sized
   calls and rooms; mesh/relay first, SFU later if needed.
-- **No separate identity system.** Forum identity is the Vulos account / vumail,
+- **No separate identity system.** Spaces identity is the Vulos account / vumail,
   shared with Office collaboration.
 - **No bespoke signaling server.** Reuse the OS fabric's signaling + relay; do
-  not build a parallel one for Office/Forum.
+  not build a parallel one for Office/Spaces.
 - **No telephony/PSTN dial-in** in the OSS core.
 ```

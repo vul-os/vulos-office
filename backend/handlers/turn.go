@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TURNHandler issues short-lived ICE server lists for the Forum call layer
+// TURNHandler issues short-lived ICE server lists for the Vulos Spaces call layer
 // (OFFICE-63). Mirrors the path the OS fabric uses for TURN cred minting:
 //
 //   GET /api/turn/credentials → { iceServers: [...] }

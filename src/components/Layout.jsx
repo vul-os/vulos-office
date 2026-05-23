@@ -7,7 +7,7 @@
  *   - Sidebar uses an accent-rail to mark the active app instead of filling
  *     the row, so the rail "gets out of the way" of the work surface.
  *   - App icons keep one warm tint each (so users can find Sheets / Slides /
- *     Forum at a glance) but those tints sit at low saturation and only show
+ *     Spaces at a glance) but those tints sit at low saturation and only show
  *     on the icon itself, never on a row background.
  *   - The bottom-right "theme cycler" gives users explicit control over the
  *     warm-dark mode — calmer than slamming the inversion on every load.
@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Home as HomeIcon, FileText, Table2, Presentation, FileSearch, MessageSquare,
   LogOut, ChevronLeft, ChevronRight, Settings as SettingsIcon, Plus,
-  Sun, Moon, Monitor,
+  Sun, Moon, Monitor, CalendarDays, BookUser,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useFilesStore } from '../store/filesStore'
@@ -31,11 +31,13 @@ import { Sidebar, IconButton, Tooltip, useTheme } from './ui'
 // One restrained warm tint per app — these read as "category", not as accents.
 // Avoiding indigo/blue keeps the deep-teal accent unique.
 const NAV_APPS = [
-  { label: 'Docs',   icon: FileText,      route: '/docs',   tint: 'text-oat-700'      },
-  { label: 'Sheets', icon: Table2,        route: '/sheets', tint: 'text-success'      },
-  { label: 'Slides', icon: Presentation,  route: '/slides', tint: 'text-warning'      },
-  { label: 'PDF',    icon: FileSearch,    route: '/pdf',    tint: 'text-danger'       },
-  { label: 'Forum',  icon: MessageSquare, route: '/forum',  tint: 'text-info'         },
+  { label: 'Docs',     icon: FileText,      route: '/docs',     tint: 'text-oat-700' },
+  { label: 'Sheets',   icon: Table2,        route: '/sheets',   tint: 'text-success' },
+  { label: 'Slides',   icon: Presentation,  route: '/slides',   tint: 'text-warning' },
+  { label: 'PDF',      icon: FileSearch,    route: '/pdf',      tint: 'text-danger'  },
+  { label: 'Spaces',   icon: MessageSquare, route: '/spaces',   tint: 'text-info'    },
+  { label: 'Calendar', icon: CalendarDays,  route: '/calendar', tint: 'text-accent', beta: true },
+  { label: 'Contacts', icon: BookUser,      route: '/contacts', tint: 'text-accent', beta: true },
 ]
 
 function ThemeCycler() {
@@ -94,15 +96,20 @@ function Shell() {
         </Sidebar.Section>
 
         <Sidebar.Section label="Apps">
-          {NAV_APPS.map(({ label, icon, route, tint }) => (
+          {NAV_APPS.map(({ label, icon, route, tint, beta }) => (
             <Sidebar.Item
               key={route}
               to={route}
               icon={icon}
               iconAccent={tint}
-              title={label}
+              title={beta ? `${label} (beta)` : label}
             >
               {label}
+              {beta && !collapsed && (
+                <span className="ml-1 text-[9px] px-1 py-px rounded bg-accent-tint text-accent font-medium leading-none align-middle">
+                  beta
+                </span>
+              )}
             </Sidebar.Item>
           ))}
         </Sidebar.Section>

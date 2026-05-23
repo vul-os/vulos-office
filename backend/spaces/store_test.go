@@ -1,17 +1,17 @@
-package forum_test
+package spaces_test
 
 import (
 	"testing"
 
-	"vulos-office/backend/forum"
+	"vulos-office/backend/spaces"
 	"vulos-office/backend/models"
 )
 
-// openStore returns a ForumStore backed by an in-memory NullPersister.
-func openStore(t *testing.T, nodeID string) *forum.ForumStore {
+// openStore returns a SpacesStore backed by an in-memory NullPersister.
+func openStore(t *testing.T, nodeID string) *spaces.SpacesStore {
 	t.Helper()
-	p := forum.NewNullPersister()
-	s, err := forum.Open(nodeID, p)
+	p := spaces.NewNullPersister()
+	s, err := spaces.Open(nodeID, p)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -123,10 +123,10 @@ func TestCannotEditTombstone(t *testing.T) {
 // -------------------------------------------------------------------------
 
 func TestAppendConvergesTwoReplicas(t *testing.T) {
-	pA := forum.NewNullPersister()
-	pB := forum.NewNullPersister()
-	nodeA, _ := forum.Open("node-A", pA)
-	nodeB, _ := forum.Open("node-B", pB)
+	pA := spaces.NewNullPersister()
+	pB := spaces.NewNullPersister()
+	nodeA, _ := spaces.Open("node-A", pA)
+	nodeB, _ := spaces.Open("node-B", pB)
 
 	// Both replicas start with the same channel (as they would after initial sync).
 	ch, _ := nodeA.CreateChannel("sync-test", models.ChannelTypePublic, "alice")
@@ -179,10 +179,10 @@ func TestAppendConvergesTwoReplicas(t *testing.T) {
 }
 
 func TestTombstoneConverges(t *testing.T) {
-	pA := forum.NewNullPersister()
-	pB := forum.NewNullPersister()
-	nodeA, _ := forum.Open("node-A", pA)
-	nodeB, _ := forum.Open("node-B", pB)
+	pA := spaces.NewNullPersister()
+	pB := spaces.NewNullPersister()
+	nodeA, _ := spaces.Open("node-A", pA)
+	nodeB, _ := spaces.Open("node-B", pB)
 
 	ch, _ := nodeA.CreateChannel("tomb-test", models.ChannelTypePublic, "alice")
 
@@ -211,10 +211,10 @@ func TestTombstoneConverges(t *testing.T) {
 }
 
 func TestEditConvergesLWW(t *testing.T) {
-	pA := forum.NewNullPersister()
-	pB := forum.NewNullPersister()
-	nodeA, _ := forum.Open("node-A", pA)
-	nodeB, _ := forum.Open("node-B", pB)
+	pA := spaces.NewNullPersister()
+	pB := spaces.NewNullPersister()
+	nodeA, _ := spaces.Open("node-A", pA)
+	nodeB, _ := spaces.Open("node-B", pB)
 
 	ch, _ := nodeA.CreateChannel("edit-test", models.ChannelTypePublic, "alice")
 	msg, _ := nodeA.SendMessage(ch.ID, "alice", "v1", "")

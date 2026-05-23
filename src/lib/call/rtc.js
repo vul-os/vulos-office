@@ -1,4 +1,4 @@
-// rtc.js — WebRTC 1:1 + group (mesh) voice/video calling for Vulos-Forum.
+// rtc.js — WebRTC 1:1 + group (mesh) voice/video calling for Vulos Spaces.
 //
 // Architecture
 //   * Signaling: routed through the OFFICE-20 fabric session (offer/answer/

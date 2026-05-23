@@ -4,24 +4,24 @@ import (
 	"net/http"
 	"sync"
 
-	"vulos-office/backend/forum"
+	"vulos-office/backend/spaces"
 	"vulos-office/backend/models"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ForumHandler exposes a REST façade over the in-process ForumStore.
-// The ForumStore is the single source of truth; no separate DB is needed
+// SpacesHandler exposes a REST façade over the in-process SpacesStore.
+// The SpacesStore is the single source of truth; no separate DB is needed
 // for the MVP (OFFICE-60 wires in durable Persisters).
-type ForumHandler struct {
+type SpacesHandler struct {
 	mu    sync.RWMutex
-	store *forum.ForumStore
+	store *spaces.SpacesStore
 }
 
-func NewForumHandler() *ForumHandler {
-	p := forum.NewNullPersister()
-	s, _ := forum.Open("server", p)
-	h := &ForumHandler{store: s}
+func NewSpacesHandler() *SpacesHandler {
+	p := spaces.NewNullPersister()
+	s, _ := spaces.Open("server", p)
+	h := &SpacesHandler{store: s}
 	// Seed a default general channel so the UI has something to show.
 	_, _ = s.CreateChannelWithID("general", "general", models.ChannelTypePublic, "system")
 	return h
@@ -31,7 +31,7 @@ func NewForumHandler() *ForumHandler {
 // Channels
 // -------------------------------------------------------------------------
 
-func (h *ForumHandler) ListChannels(c *gin.Context) {
+func (h *SpacesHandler) ListChannels(c *gin.Context) {
 	chs := h.store.ListChannels()
 	if chs == nil {
 		chs = []*models.Channel{}
@@ -39,7 +39,7 @@ func (h *ForumHandler) ListChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, chs)
 }
 
-func (h *ForumHandler) CreateChannel(c *gin.Context) {
+func (h *SpacesHandler) CreateChannel(c *gin.Context) {
 	var req models.CreateChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -72,7 +72,7 @@ func (h *ForumHandler) CreateChannel(c *gin.Context) {
 // Membership
 // -------------------------------------------------------------------------
 
-func (h *ForumHandler) JoinChannel(c *gin.Context) {
+func (h *SpacesHandler) JoinChannel(c *gin.Context) {
 	channelID := c.Param("channelId")
 	accountID := c.GetHeader("X-Account-ID")
 	if accountID == "" {
@@ -86,7 +86,7 @@ func (h *ForumHandler) JoinChannel(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
-func (h *ForumHandler) ListMembers(c *gin.Context) {
+func (h *SpacesHandler) ListMembers(c *gin.Context) {
 	channelID := c.Param("channelId")
 	members := h.store.ListMembers(channelID)
 	if members == nil {
@@ -99,7 +99,7 @@ func (h *ForumHandler) ListMembers(c *gin.Context) {
 // Messages
 // -------------------------------------------------------------------------
 
-func (h *ForumHandler) ListMessages(c *gin.Context) {
+func (h *SpacesHandler) ListMessages(c *gin.Context) {
 	channelID := c.Param("channelId")
 	msgs := h.store.ListMessages(channelID)
 	if msgs == nil {
@@ -108,7 +108,7 @@ func (h *ForumHandler) ListMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, msgs)
 }
 
-func (h *ForumHandler) SendMessage(c *gin.Context) {
+func (h *SpacesHandler) SendMessage(c *gin.Context) {
 	channelID := c.Param("channelId")
 	var req models.SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -127,7 +127,7 @@ func (h *ForumHandler) SendMessage(c *gin.Context) {
 	c.JSON(http.StatusCreated, msg)
 }
 
-func (h *ForumHandler) EditMessage(c *gin.Context) {
+func (h *SpacesHandler) EditMessage(c *gin.Context) {
 	channelID := c.Param("channelId")
 	msgID := c.Param("msgId")
 	var req models.EditMessageRequest
@@ -143,7 +143,7 @@ func (h *ForumHandler) EditMessage(c *gin.Context) {
 	c.JSON(http.StatusOK, msg)
 }
 
-func (h *ForumHandler) DeleteMessage(c *gin.Context) {
+func (h *SpacesHandler) DeleteMessage(c *gin.Context) {
 	channelID := c.Param("channelId")
 	msgID := c.Param("msgId")
 	if err := h.store.DeleteMessage(channelID, msgID); err != nil {
@@ -157,7 +157,7 @@ func (h *ForumHandler) DeleteMessage(c *gin.Context) {
 // Read-state
 // -------------------------------------------------------------------------
 
-func (h *ForumHandler) MarkRead(c *gin.Context) {
+func (h *SpacesHandler) MarkRead(c *gin.Context) {
 	channelID := c.Param("channelId")
 	accountID := c.GetHeader("X-Account-ID")
 	if accountID == "" {
@@ -177,7 +177,7 @@ func (h *ForumHandler) MarkRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func (h *ForumHandler) GetReadState(c *gin.Context) {
+func (h *SpacesHandler) GetReadState(c *gin.Context) {
 	channelID := c.Param("channelId")
 	accountID := c.GetHeader("X-Account-ID")
 	if accountID == "" {
@@ -195,7 +195,7 @@ func (h *ForumHandler) GetReadState(c *gin.Context) {
 // CRDT op sync (pull/push for cold-joiner catch-up)
 // -------------------------------------------------------------------------
 
-func (h *ForumHandler) ExportOps(c *gin.Context) {
+func (h *SpacesHandler) ExportOps(c *gin.Context) {
 	channelID := c.Param("channelId")
 	afterClock := c.Query("after")
 	ops, err := h.store.ExportOps(channelID, afterClock)
@@ -209,7 +209,7 @@ func (h *ForumHandler) ExportOps(c *gin.Context) {
 	c.JSON(http.StatusOK, ops)
 }
 
-func (h *ForumHandler) MergeOps(c *gin.Context) {
+func (h *SpacesHandler) MergeOps(c *gin.Context) {
 	var ops []*models.MessageOp
 	if err := c.ShouldBindJSON(&ops); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

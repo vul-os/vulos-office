@@ -7,7 +7,7 @@ package models
 // base document until a reviewer accepts it.
 //
 // SeqClock is an HLC tick for CRDT LWW-merge across peers — the same clock
-// scheme used by Comments and Forum messages.
+// scheme used by Comments and Spaces messages.
 
 import "time"
 

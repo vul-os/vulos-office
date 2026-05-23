@@ -1,7 +1,7 @@
 # Vulos Office — Task Backlog
 
 **Status: 35 / 35 tasks done (100%).** Office Core, Real-time Collaboration (CRDT +
-fabric), PDF Auto-Sign, and Vulos-Forum (channels, calls, screen-share, meetings) are
+fabric), PDF Auto-Sign, and Vulos Spaces (channels, calls, screen-share, meetings) are
 all shipped. Design-system pillar applied to core surfaces (see `src/design/DESIGN.md`
 §9); remaining surfaces deferred to the next pass (§10).
 
@@ -133,7 +133,7 @@ AC: [ ] concurrent cell edits converge in Sheets [ ] concurrent slide reorder/co
 
 ### [OFFICE-24] Presence roster (who's here)
 `done` · P1 · M · dep: OFFICE-20 · parallel: yes — src/lib/presence.js, src/components/PresenceBar.jsx
-Scope: A presence primitive over the fabric session: broadcast {accountId/vumail, displayName, color, online} on join/heartbeat; render an avatar roster in editor top bars; reusable by Sheets/Slides/Forum. Identity from the Vulos account/vumail when present, else a session-scoped guest identity. JSX only.
+Scope: A presence primitive over the fabric session: broadcast {accountId/vumail, displayName, color, online} on join/heartbeat; render an avatar roster in editor top bars; reusable by Sheets/Slides/Spaces. Identity from the Vulos account/vumail when present, else a session-scoped guest identity. JSX only.
 AC: [ ] roster shows all live collaborators with stable colors [ ] entries drop on disconnect/timeout [ ] reused across docs/sheets/slides [ ] npm run build
 
 ### [OFFICE-25] Live cursors + selections
@@ -209,7 +209,7 @@ AC: [ ] valid sealed PDF verifies green [ ] any post-sign byte change flags tamp
 
 ---
 
-## Area: Vulos-Forum
+## Area: Vulos Spaces
 
 _Roadmap: [`ROADMAP.md` § 4](ROADMAP.md)_ · _Fabric: vulos-cloud RELAY signaling_ · _Prefix: `OFFICE-`_
 
@@ -219,37 +219,37 @@ _Roadmap: [`ROADMAP.md` § 4](ROADMAP.md)_ · _Fabric: vulos-cloud RELAY signali
 > fallback**. No third-party media stack, no separate identity, no bespoke
 > signaling — reuse OFFICE-20 fabric client + the OS RELAY signaling layer.
 
-### [OFFICE-60] Forum data model + message store (CRDT-synced)
-`done` · P1 · L · dep: OFFICE-21 · parallel: no — backend/models/forum.go, backend/storage/local.go, backend/storage/postgres.go, src/lib/crdt/messages.js
+### [OFFICE-60] Spaces data model + message store (CRDT-synced)
+`done` · P1 · L · dep: OFFICE-21 · parallel: no — backend/models/spaces.go, backend/storage/local.go, backend/storage/postgres.go, src/lib/crdt/messages.js
 Scope: Models for Channel (id, name, public/private, members), Message (id, channel/dm id, author, body, ts, thread-parent), and membership/read-state. Messages sync as CRDT data over the fabric (append + edit/delete tombstones) so channels converge across instances offline-tolerant; persist to local + postgres for history. No UI yet.
 AC: [ ] channel/message/membership models persist in local + postgres [ ] messages converge across two replicas including offline [ ] edit/delete tombstones converge [ ] go build ./... && npm run build
 
 ### [OFFICE-61] Channels + DMs + threads UI
-`done` · P1 · L · dep: OFFICE-60, OFFICE-24 · parallel: no — src/apps/forum/ForumApp.jsx, src/apps/forum/ChannelView.jsx, src/apps/forum/MessageList.jsx, src/App.jsx
-Scope: The Forum surface: channel sidebar (public/private), DM + group-DM list, message composer, threaded replies, unread/mention indicators, presence-aware member list (reuse OFFICE-24). Route `/forum` (+ `/forum/:channelId`) registered in App.jsx. Messages flow over the CRDT message store. JSX only.
-AC: [ ] create/join channel, post + thread-reply [ ] DMs + group DMs work [ ] unread/mention indicators update live [ ] /forum routes registered [ ] npm run build
+`done` · P1 · L · dep: OFFICE-60, OFFICE-24 · parallel: no — src/apps/spaces/SpacesApp.jsx, src/apps/spaces/ChannelView.jsx, src/apps/spaces/MessageList.jsx, src/App.jsx
+Scope: The Vulos Spaces surface: channel sidebar (public/private), DM + group-DM list, message composer, threaded replies, unread/mention indicators, presence-aware member list (reuse OFFICE-24). Route `/spaces` (+ `/spaces/:channelId`) registered in App.jsx. Messages flow over the CRDT message store. JSX only.
+AC: [ ] create/join channel, post + thread-reply [ ] DMs + group DMs work [ ] unread/mention indicators update live [ ] /spaces routes registered [ ] npm run build
 
-### [OFFICE-62] Presence + status for Forum
-`done` · P2 · S · dep: OFFICE-61, OFFICE-24 · parallel: yes — src/lib/presence.js, src/apps/forum/ChannelView.jsx
-Scope: Extend the presence primitive with custom status (online/away/in-a-call + free-text), shown next to members in Forum and reused by Office editors. In-a-call state is set by the calling layer (OFFICE-63). JSX only.
-AC: [ ] status changes propagate live to other peers [ ] in-a-call status reflects active calls [ ] presence reused in editors + forum [ ] npm run build
+### [OFFICE-62] Presence + status for Vulos Spaces
+`done` · P2 · S · dep: OFFICE-61, OFFICE-24 · parallel: yes — src/lib/presence.js, src/apps/spaces/ChannelView.jsx
+Scope: Extend the presence primitive with custom status (online/away/in-a-call + free-text), shown next to members in Vulos Spaces and reused by Office editors. In-a-call state is set by the calling layer (OFFICE-63). JSX only.
+AC: [ ] status changes propagate live to other peers [ ] in-a-call status reflects active calls [ ] presence reused in editors + spaces [ ] npm run build
 
 ### [OFFICE-63] 1:1 + group voice/video calling (WebRTC P2P + relay/TURN fallback)
-`done` · P1 · L · dep: OFFICE-20, OFFICE-61 · parallel: no — src/lib/call/rtc.js, src/apps/forum/CallView.jsx
+`done` · P1 · L · dep: OFFICE-20, OFFICE-61 · parallel: no — src/lib/call/rtc.js, src/apps/spaces/CallView.jsx
 Scope: WebRTC voice/video calling over the fabric: signaling (offer/answer/ICE) via the OS RELAY signaling service, P2P mesh for small groups, **Vulos relay/TURN fallback** for NAT-blocked peers (TURN creds from the cloud `/api/turn/credentials`). In-call UI: mute, camera toggle, participant roster, active-speaker, leave. No third-party media SFU. JSX only.
 AC: [ ] 1:1 video call connects P2P [ ] 3-party mesh call works [ ] relay/TURN fallback when P2P blocked [ ] mute/camera/leave controls work [ ] npm run build
 
 ### [OFFICE-64] Screen-share in calls
-`done` · P2 · M · dep: OFFICE-63 · parallel: yes — src/lib/call/rtc.js, src/apps/forum/CallView.jsx
+`done` · P2 · M · dep: OFFICE-63 · parallel: yes — src/lib/call/rtc.js, src/apps/spaces/CallView.jsx
 Scope: Add getDisplayMedia screen/window sharing to an active call as an additional track/stream; presenter indicator; stop-sharing control; viewers render the shared stream prominently. JSX only.
 AC: [ ] start/stop screen-share in a live call [ ] other participants see the shared screen [ ] presenter indicator shown [ ] npm run build
 
 ### [OFFICE-65] Scheduled meetings + meeting rooms (Google-Meet equivalent)
-`done` · P2 · L · dep: OFFICE-63 · parallel: yes — backend/models/meetings.go, backend/handlers/meetings.go, src/apps/forum/Meetings.jsx, src/apps/forum/Room.jsx, src/App.jsx
+`done` · P2 · L · dep: OFFICE-63 · parallel: yes — backend/models/meetings.go, backend/handlers/meetings.go, src/apps/spaces/Meetings.jsx, src/apps/spaces/Room.jsx, src/App.jsx
 Scope: Named, persistent or scheduled meeting rooms with a join link, lobby/admit, per-room presence, and calendar-style scheduling. Backend stores room + schedule metadata (`/api/meetings`); `/room/:roomId` joins the room and starts a call via OFFICE-63. Reuse presence + calling; no third-party media. JSX only.
 AC: [ ] create a scheduled room with a join link [ ] join via link enters lobby then the call [ ] per-room presence + roster [ ] /room route registered [ ] go build ./... && npm run build
 
 ### [OFFICE-66] In-call chat tied to channel/thread
-`done` · P3 · S · dep: OFFICE-63, OFFICE-61 · parallel: yes — src/apps/forum/CallView.jsx, src/lib/crdt/messages.js
-Scope: A lightweight in-call chat panel that posts to the originating channel/thread (or an ephemeral room thread for ad-hoc meeting rooms) using the existing CRDT message store, so call chat persists in Forum history. JSX only.
-AC: [ ] in-call messages post to the channel/room thread [ ] messages persist in Forum history after the call [ ] npm run build
+`done` · P3 · S · dep: OFFICE-63, OFFICE-61 · parallel: yes — src/apps/spaces/CallView.jsx, src/lib/crdt/messages.js
+Scope: A lightweight in-call chat panel that posts to the originating channel/thread (or an ephemeral room thread for ad-hoc meeting rooms) using the existing CRDT message store, so call chat persists in Vulos Spaces history. JSX only.
+AC: [ ] in-call messages post to the channel/room thread [ ] messages persist in Vulos Spaces history after the call [ ] npm run build

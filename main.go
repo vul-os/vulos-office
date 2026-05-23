@@ -9,6 +9,7 @@ import (
 	"vulos-office/backend/config"
 	"vulos-office/backend/handlers"
 	"vulos-office/backend/middleware"
+	"vulos-office/backend/obs"
 	"vulos-office/backend/storage"
 
 	"github.com/gin-contrib/cors"
@@ -19,6 +20,8 @@ import (
 var distFS embed.FS
 
 func main() {
+	obs.Init()
+
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Printf("Config error: %v — using defaults", err)
@@ -38,6 +41,9 @@ func main() {
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 	}))
+
+	// Prometheus metrics (no auth required).
+	r.GET("/metrics", gin.WrapH(obs.Handler()))
 
 	// Auth routes (unauthenticated)
 	authHandler := handlers.NewAuthHandler(cfg)
@@ -95,7 +101,7 @@ func main() {
 	protected.GET("/local-files", localFilesHandler.Scan)
 	protected.GET("/local-files/serve", localFilesHandler.Serve)
 
-	// OFFICE-63: short-lived TURN/ICE credentials for Forum WebRTC calls.
+	// OFFICE-63: short-lived TURN/ICE credentials for Vulos Spaces WebRTC calls.
 	// Available authenticated (so creds aren't issued anonymously when auth is on).
 	turnHandler := handlers.NewTURNHandler()
 	protected.GET("/turn/credentials", turnHandler.Credentials)
@@ -143,20 +149,20 @@ func main() {
 	// Join is public — external invitees follow a bare link with no Vulos account.
 	api.GET("/meetings/:id/join", meetingHandler.Join)
 
-	// OFFICE-60/61: Forum — channels, DMs, threads, messages (CRDT-synced).
-	forumHandler := handlers.NewForumHandler()
-	protected.GET("/forum/channels", forumHandler.ListChannels)
-	protected.POST("/forum/channels", forumHandler.CreateChannel)
-	protected.POST("/forum/channels/:channelId/join", forumHandler.JoinChannel)
-	protected.GET("/forum/channels/:channelId/members", forumHandler.ListMembers)
-	protected.GET("/forum/channels/:channelId/messages", forumHandler.ListMessages)
-	protected.POST("/forum/channels/:channelId/messages", forumHandler.SendMessage)
-	protected.PUT("/forum/channels/:channelId/messages/:msgId", forumHandler.EditMessage)
-	protected.DELETE("/forum/channels/:channelId/messages/:msgId", forumHandler.DeleteMessage)
-	protected.POST("/forum/channels/:channelId/read", forumHandler.MarkRead)
-	protected.GET("/forum/channels/:channelId/read", forumHandler.GetReadState)
-	protected.GET("/forum/channels/:channelId/ops", forumHandler.ExportOps)
-	protected.POST("/forum/ops", forumHandler.MergeOps)
+	// OFFICE-60/61: Vulos Spaces — channels, DMs, threads, messages (CRDT-synced).
+	forumHandler := handlers.NewSpacesHandler()
+	protected.GET("/spaces/channels", forumHandler.ListChannels)
+	protected.POST("/spaces/channels", forumHandler.CreateChannel)
+	protected.POST("/spaces/channels/:channelId/join", forumHandler.JoinChannel)
+	protected.GET("/spaces/channels/:channelId/members", forumHandler.ListMembers)
+	protected.GET("/spaces/channels/:channelId/messages", forumHandler.ListMessages)
+	protected.POST("/spaces/channels/:channelId/messages", forumHandler.SendMessage)
+	protected.PUT("/spaces/channels/:channelId/messages/:msgId", forumHandler.EditMessage)
+	protected.DELETE("/spaces/channels/:channelId/messages/:msgId", forumHandler.DeleteMessage)
+	protected.POST("/spaces/channels/:channelId/read", forumHandler.MarkRead)
+	protected.GET("/spaces/channels/:channelId/read", forumHandler.GetReadState)
+	protected.GET("/spaces/channels/:channelId/ops", forumHandler.ExportOps)
+	protected.POST("/spaces/ops", forumHandler.MergeOps)
 
 	// Serve embedded frontend (SPA fallback to index.html)
 	staticFS, err := fs.Sub(distFS, "dist")

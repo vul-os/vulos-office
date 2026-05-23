@@ -1,6 +1,6 @@
 /**
  * ChannelView — message view + compose for a single channel/DM.
- * Pulls messages from the REST API backed by the CRDT ForumStore (OFFICE-60).
+ * Pulls messages from the REST API backed by the CRDT SpacesStore (OFFICE-60).
  * Live sync is via polling (full fabric P2P is OFFICE-20; this plugs in there).
  *
  * Design pass: sticky-but-quiet topbar with roster pills + PresenceDots,
@@ -168,7 +168,7 @@ export default function ChannelView({ channel, currentUser, roster = [] }) {
   const loadMessages = useCallback(async () => {
     if (!channel) return
     try {
-      const msgs = await api.forumListMessages(channel.id)
+      const msgs = await api.spacesListMessages(channel.id)
       crdtStore.mergeOps(msgs.map((m) => ({
         op: m.state === 'deleted' ? 'tombstone' : m.state === 'edited' ? 'edit' : 'append',
         channel_id: m.channel_id,
@@ -203,13 +203,13 @@ export default function ChannelView({ channel, currentUser, roster = [] }) {
     setSending(true)
     setError(null)
     try {
-      await api.forumSendMessage(channel.id, text, replyTo?.id || '')
+      await api.spacesSendMessage(channel.id, text, replyTo?.id || '')
       setBody('')
       setReplyTo(null)
       if (composeRef.current) composeRef.current.style.height = 'auto'
       await loadMessages()
       const last = messages[messages.length - 1]
-      if (last) api.forumMarkRead(channel.id, last.seq_clock).catch(() => {})
+      if (last) api.spacesMarkRead(channel.id, last.seq_clock).catch(() => {})
     } catch (e) {
       setError(e.message || 'Send failed')
     } finally {
@@ -219,13 +219,13 @@ export default function ChannelView({ channel, currentUser, roster = [] }) {
 
   async function sendThreadReply(text, parentId) {
     setError(null)
-    await api.forumSendMessage(channel.id, text, parentId)
+    await api.spacesSendMessage(channel.id, text, parentId)
     await loadMessages()
   }
 
   async function handleEdit(msgId, newBody) {
     try {
-      await api.forumEditMessage(channel.id, msgId, newBody)
+      await api.spacesEditMessage(channel.id, msgId, newBody)
       await loadMessages()
     } catch (e) {
       setError(e.message || 'Edit failed')
@@ -234,7 +234,7 @@ export default function ChannelView({ channel, currentUser, roster = [] }) {
 
   async function handleDelete(msgId) {
     try {
-      await api.forumDeleteMessage(channel.id, msgId)
+      await api.spacesDeleteMessage(channel.id, msgId)
       await loadMessages()
     } catch (e) {
       setError(e.message || 'Delete failed')

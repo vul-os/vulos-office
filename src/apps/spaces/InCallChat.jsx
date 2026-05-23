@@ -1,8 +1,8 @@
 /**
  * InCallChat — lightweight in-call chat sidebar (OFFICE-66).
  *
- * Posts messages to the call's originating channel/thread via the Forum API
- * (api.forumSendMessage) and the CRDT MessageStore, so chat persists in Forum
+ * Posts messages to the call's originating channel/thread via the Spaces API
+ * (api.spacesSendMessage) and the CRDT MessageStore, so chat persists in Vulos Spaces
  * history after the call ends.
  *
  * Design pass: themed against the call surface (warm ink background,
@@ -10,7 +10,7 @@
  * the right-rail panels.
  *
  * Props:
- *   channelId   — Forum channel/thread id tied to this call session
+ *   channelId   — Spaces channel/thread id tied to this call session
  *   threadParent — optional parent message id (for meeting-room threads)
  *   identity    — { displayName, vumail } used as author label
  *   onClose     — called when the panel is dismissed
@@ -33,7 +33,7 @@ export default function InCallChat({ channelId, threadParent = '', identity, onC
   const loadMessages = useCallback(async () => {
     if (!channelId) return
     try {
-      const remote = await api.forumListMessages(channelId)
+      const remote = await api.spacesListMessages(channelId)
       store.mergeOps(
         remote.map((m) => ({
           op: m.state === 'deleted' ? 'tombstone' : m.state === 'edited' ? 'edit' : 'append',
@@ -90,7 +90,7 @@ export default function InCallChat({ channelId, threadParent = '', identity, onC
           .filter((m) => m.state !== 'deleted'),
       )
       setBody('')
-      await api.forumSendMessage(channelId, text, threadParent)
+      await api.spacesSendMessage(channelId, text, threadParent)
       await loadMessages()
     } catch (e) {
       console.error('[InCallChat] send failed', e)
@@ -134,7 +134,7 @@ export default function InCallChat({ channelId, threadParent = '', identity, onC
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         {messages.length === 0 && (
           <p className="text-paper/50 text-xs text-center mt-4 font-serif italic">
-            No messages yet. Chat here — it persists in Forum after the call.
+            No messages yet. Chat here — it persists in Vulos Spaces after the call.
           </p>
         )}
         {messages.map((m) => (

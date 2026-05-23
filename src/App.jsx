@@ -13,10 +13,12 @@ import SigningSetup from './apps/pdf/SigningSetup'
 import Settings from './components/Settings'
 import SignView from './apps/pdf/SignView'
 import EnvelopeDashboard from './components/EnvelopeDashboard'
-import ForumApp from './apps/forum/ForumApp'
-import Meetings from './apps/forum/Meetings'
-import Room from './apps/forum/Room'
+import SpacesApp from './apps/spaces/SpacesApp'
+import Meetings from './apps/spaces/Meetings'
+import Room from './apps/spaces/Room'
 import Verify from './components/Verify'
+import CalendarApp from './apps/calendar/CalendarApp'
+import ContactsApp from './apps/contacts/ContactsApp'
 
 // Public routes that bypass Vulos auth entirely.
 // External signers, external meeting invitees, and external verifiers have no Vulos account.
@@ -69,10 +71,12 @@ export default function App() {
         <Route path="/pdf-editor" element={<PDFEditor />} />
         <Route path="/signing-setup" element={<SigningSetup />} />
         <Route path="/envelopes" element={<EnvelopeDashboard />} />
-        <Route path="/forum" element={<ForumApp />} />
-        <Route path="/forum/:channelId" element={<ForumApp />} />
+        <Route path="/spaces" element={<SpacesApp />} />
+        <Route path="/spaces/:channelId" element={<SpacesApp />} />
         <Route path="/meetings" element={<Meetings />} />
         <Route path="/room/:sessionId" element={<Room />} />
+        <Route path="/calendar" element={<CalendarApp />} />
+        <Route path="/contacts" element={<ContactsApp />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
