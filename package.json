@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n \"vite,go\" -c \"cyan,green\" \"vite\" \"go run .\"",
+    "dev": "vite build && go run .",
+    "dev:web": "concurrently -n \"vite,go\" -c \"cyan,green\" \"vite\" \"go run .\"",
     "build": "vite build && go build -o vulos-office .",
     "build:frontend": "vite build",
     "build:go": "go build -o vulos-office .",

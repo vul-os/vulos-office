@@ -1,8 +1,19 @@
+import { writeFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// emptyOutDir wipes dist/ on every build, including the dist/.gitkeep
+// placeholder that lets `go build` (//go:embed all:dist) compile before any
+// frontend build exists. Recreate it after the bundle is written.
+const keepGitkeep = {
+  name: 'keep-dist-gitkeep',
+  closeBundle() {
+    writeFileSync('dist/.gitkeep', '')
+  },
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), keepGitkeep],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import LoginScreen from './components/LoginScreen'
 import Layout from './components/Layout'
@@ -9,12 +9,39 @@ import DocsEditor from './apps/docs/DocsEditor'
 import SheetsEditor from './apps/sheets/SheetsEditor'
 import SlidesEditor from './apps/slides/SlidesEditor'
 import PDFEditor from './apps/pdf/PDFEditor'
+import SigningSetup from './apps/pdf/SigningSetup'
 import Settings from './components/Settings'
+import SignView from './apps/pdf/SignView'
+import EnvelopeDashboard from './components/EnvelopeDashboard'
+import ForumApp from './apps/forum/ForumApp'
+import Meetings from './apps/forum/Meetings'
+import Room from './apps/forum/Room'
+import Verify from './components/Verify'
+
+// Public routes that bypass Vulos auth entirely.
+// External signers, external meeting invitees, and external verifiers have no Vulos account.
+const PUBLIC_PREFIXES = ['/sign/', '/room/', '/verify']
+
+function isPublicRoute(pathname) {
+  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))
+}
 
 export default function App() {
   const { status, loading, fetchStatus } = useAuthStore()
+  const location = useLocation()
 
   useEffect(() => { fetchStatus() }, [])
+
+  // Render public routes immediately — no auth check, no Layout shell.
+  if (isPublicRoute(location.pathname)) {
+    return (
+      <Routes>
+        <Route path="/sign/:token" element={<SignView />} />
+        <Route path="/room/:sessionId" element={<Room />} />
+        <Route path="/verify" element={<Verify />} />
+      </Routes>
+    )
+  }
 
   if (loading) {
     return (
@@ -40,6 +67,12 @@ export default function App() {
         <Route path="/slides/:id" element={<SlidesEditor />} />
         <Route path="/pdf" element={<AppHome type="pdf" />} />
         <Route path="/pdf-editor" element={<PDFEditor />} />
+        <Route path="/signing-setup" element={<SigningSetup />} />
+        <Route path="/envelopes" element={<EnvelopeDashboard />} />
+        <Route path="/forum" element={<ForumApp />} />
+        <Route path="/forum/:channelId" element={<ForumApp />} />
+        <Route path="/meetings" element={<Meetings />} />
+        <Route path="/room/:sessionId" element={<Room />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

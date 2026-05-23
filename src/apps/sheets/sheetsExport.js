@@ -13,6 +13,14 @@ function fortuneToWorksheet(sheet) {
     if (c > maxC) maxC = c
   }
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } })
+  // Restore merged cells from Fortune Sheet config.merge → xlsx !merges
+  const mc = sheet.config?.merge
+  if (mc && typeof mc === 'object') {
+    ws['!merges'] = Object.values(mc).map(m => ({
+      s: { r: m.r, c: m.c },
+      e: { r: m.r + (m.rs || 1) - 1, c: m.c + (m.cs || 1) - 1 },
+    }))
+  }
   return ws
 }
 

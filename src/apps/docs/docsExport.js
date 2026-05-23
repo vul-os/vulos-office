@@ -41,6 +41,35 @@ async function nodesToDocx(nodes) {
   return out
 }
 
+// Recursively flatten nested bullet/ordered lists with indentation levels
+async function listToDocx(listNode, depth) {
+  const isOrdered = listNode.type === 'orderedList'
+  const items = []
+  for (const item of listNode.content || []) {
+    // item is a listItem; its content may be paragraphs and/or nested lists
+    for (const child of item.content || []) {
+      if (child.type === 'bulletList' || child.type === 'orderedList') {
+        items.push(...(await listToDocx(child, depth + 1)))
+      } else if (child.type === 'taskItem') {
+        const checked = child.attrs?.checked || false
+        items.push(new Paragraph({
+          bullet: { level: Math.min(depth, 8) },
+          children: [new TextRun({ text: (checked ? '☑ ' : '☐ ') }), ...inlineNodes(child.content?.[0]?.content || [])],
+        }))
+      } else {
+        // paragraph or other inline container
+        items.push(new Paragraph({
+          ...(isOrdered
+            ? { numbering: { reference: 'default-numbering', level: Math.min(depth, 8) } }
+            : { bullet: { level: Math.min(depth, 8) } }),
+          children: inlineNodes(child.content || []),
+        }))
+      }
+    }
+  }
+  return items
+}
+
 const HEADING_MAP = {
   1: HeadingLevel.HEADING_1,
   2: HeadingLevel.HEADING_2,
@@ -55,15 +84,10 @@ async function nodeToDocx(node) {
     case 'heading':
       return [new Paragraph({ heading: HEADING_MAP[node.attrs?.level] || HeadingLevel.HEADING_1, children: inlineNodes(node.content || []) })]
     case 'bulletList':
-    case 'orderedList': {
-      const items = []
-      for (const item of node.content || []) {
-        for (const para of item.content || []) {
-          items.push(new Paragraph({ bullet: { level: 0 }, children: inlineNodes(para.content || []) }))
-        }
-      }
-      return items
-    }
+    case 'orderedList':
+      return await listToDocx(node, 0)
+    case 'taskList':
+      return await listToDocx(node, 0)
     case 'blockquote':
       return await nodesToDocx(node.content || [])
     case 'codeBlock':

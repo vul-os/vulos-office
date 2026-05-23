@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Home, FileText, Table2, Presentation, FileSearch,
+  Home, FileText, Table2, Presentation, FileSearch, MessageSquare,
   LogOut, ChevronLeft, ChevronRight, Settings, Plus,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
@@ -9,10 +9,11 @@ import { useFilesStore } from '../store/filesStore'
 import NewFileModal from './NewFileModal'
 
 const NAV_APPS = [
-  { label: 'Docs',   icon: FileText,     route: '/docs',       color: 'text-indigo-400' },
-  { label: 'Sheets', icon: Table2,       route: '/sheets',     color: 'text-emerald-400' },
-  { label: 'Slides', icon: Presentation, route: '/slides',     color: 'text-amber-400' },
-  { label: 'PDF',    icon: FileSearch,   route: '/pdf',        color: 'text-rose-400' },
+  { label: 'Docs',   icon: FileText,       route: '/docs',   color: 'text-indigo-400' },
+  { label: 'Sheets', icon: Table2,         route: '/sheets', color: 'text-emerald-400' },
+  { label: 'Slides', icon: Presentation,   route: '/slides', color: 'text-amber-400' },
+  { label: 'PDF',    icon: FileSearch,     route: '/pdf',    color: 'text-rose-400' },
+  { label: 'Forum',  icon: MessageSquare,  route: '/forum',  color: 'text-sky-400' },
 ]
 
 function Sidebar() {

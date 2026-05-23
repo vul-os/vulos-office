@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import * as pdfjsLib from 'pdfjs-dist'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib'
 import SignaturePad from 'signature_pad'
 import {
   ArrowLeft, Download, ZoomIn, ZoomOut, Maximize2,
   MousePointer2, Type, PenLine, Pencil, LayoutList,
   SlidersHorizontal, Plus, X, Trash2, Bold, Italic,
   Underline as UnderlineIcon, ChevronLeft, ChevronRight,
-  Upload, Save,
+  Upload, Save, RotateCw, FilePlus, Trash, FileSignature,
 } from 'lucide-react'
 
 // Set worker
@@ -54,6 +54,17 @@ export default function PDFEditor() {
   const [zoom, setZoom] = useState(1.0)
   const [filename, setFilename] = useState('')
   const [loadingPdf, setLoadingPdf] = useState(false)
+
+  // Page operations state
+  // pageOrder: array of display-slot indices (1-based), each value is original 1-based page number
+  // 0 = blank inserted page
+  const [pageOrder, setPageOrder] = useState([]) // [] means not loaded
+  // pageRotations: { [displaySlot]: rotationDeg } accumulated rotation per display slot
+  const [pageRotations, setPageRotations] = useState({})
+  // blank page buffers: { [displaySlot]: ArrayBuffer } for inserted blank pages
+  const blankPageBuffers = useRef({})
+  const [thumbDragSrc, setThumbDragSrc] = useState(null) // display slot being dragged
+  const insertFileInputRef = useRef(null)
 
   // Tool state
   const [activeTool, setActiveTool] = useState(TOOLS.SELECT)
@@ -132,6 +143,9 @@ export default function PDFEditor() {
       setAnnotations({})
       setSelectedId(null)
       setFilename(file.name)
+      setPageOrder(Array.from({ length: doc.numPages }, (_, i) => i + 1))
+      setPageRotations({})
+      blankPageBuffers.current = {}
       showToast('PDF loaded successfully')
     } catch (e) {
       showToast('Error loading PDF: ' + e.message)
@@ -153,6 +167,9 @@ export default function PDFEditor() {
       setAnnotations({})
       setSelectedId(null)
       setFilename(name || 'document.pdf')
+      setPageOrder(Array.from({ length: doc.numPages }, (_, i) => i + 1))
+      setPageRotations({})
+      blankPageBuffers.current = {}
       showToast('PDF loaded successfully')
     } catch (e) {
       showToast('Error loading PDF: ' + e.message)
@@ -197,14 +214,19 @@ export default function PDFEditor() {
   }
 
   // ─── Render Page ──────────────────────────────────────────
-  const renderPage = useCallback(async (pageNum, scale) => {
+  const renderPage = useCallback(async (displaySlot, scale) => {
     if (!pdfJsDoc) return
     const canvas = pageCanvasRef.current
     const drawCanvas = drawCanvasRef.current
     if (!canvas) return
 
-    const page = await pdfJsDoc.getPage(pageNum)
-    const viewport = page.getViewport({ scale })
+    // displaySlot is 1-based; pageOrder maps it to original page number
+    const origPageNum = pageOrder.length > 0 ? pageOrder[displaySlot - 1] : displaySlot
+    if (!origPageNum || origPageNum < 1) return // blank page or unloaded
+
+    const page = await pdfJsDoc.getPage(origPageNum)
+    const extraRot = pageRotations[displaySlot] || 0
+    const viewport = page.getViewport({ scale, rotation: (page.rotate + extraRot) % 360 })
 
     canvas.width = viewport.width
     canvas.height = viewport.height
@@ -216,33 +238,292 @@ export default function PDFEditor() {
     const ctx = canvas.getContext('2d')
     await page.render({ canvasContext: ctx, viewport }).promise
 
-    // Redraw paths for this page
-    redrawPaths(pageNum, drawCanvas)
-  }, [pdfJsDoc])
+    // Redraw paths for this page (by display slot)
+    redrawPaths(displaySlot, drawCanvas)
+  }, [pdfJsDoc, pageOrder, pageRotations])
 
   useEffect(() => {
     if (pdfJsDoc) renderPage(currentPage, zoom)
   }, [pdfJsDoc, currentPage, zoom, renderPage])
 
-  // Render thumbnails when doc loads
+  // Render thumbnails when doc loads or page order/rotations change
   useEffect(() => {
-    if (!pdfJsDoc) return
-    for (let i = 1; i <= totalPages; i++) {
+    if (!pdfJsDoc || pageOrder.length === 0) return
+    for (let i = 1; i <= pageOrder.length; i++) {
       renderThumbnail(i)
     }
-  }, [pdfJsDoc, totalPages])
+  }, [pdfJsDoc, pageOrder, pageRotations])
 
-  const renderThumbnail = async (pageNum) => {
-    const canvas = thumbnailRefs.current[pageNum]
+  const renderThumbnail = async (displaySlot) => {
+    const canvas = thumbnailRefs.current[displaySlot]
     if (!canvas || !pdfJsDoc) return
+    const origPageNum = pageOrder[displaySlot - 1]
+    if (!origPageNum || origPageNum < 1) {
+      // blank page — draw white rectangle
+      canvas.width = 100
+      canvas.height = 130
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, 100, 130)
+      ctx.strokeStyle = '#e5e7eb'
+      ctx.strokeRect(0, 0, 100, 130)
+      return
+    }
     try {
-      const page = await pdfJsDoc.getPage(pageNum)
-      const vp = page.getViewport({ scale: 0.22 })
+      const page = await pdfJsDoc.getPage(origPageNum)
+      const extraRot = pageRotations[displaySlot] || 0
+      const vp = page.getViewport({ scale: 0.22, rotation: (page.rotate + extraRot) % 360 })
       canvas.width = vp.width
       canvas.height = vp.height
       const ctx = canvas.getContext('2d')
       await page.render({ canvasContext: ctx, viewport: vp }).promise
     } catch {}
+  }
+
+  // ─── Page operations ─────────────────────────────────────
+
+  // Helper: remap annotations + drawPaths from old display-slot keys to new ones
+  const remapPageData = (oldOrder, newOrder) => {
+    // Build mapping: old display slot → new display slot
+    // oldOrder[i] === value, find where that value went in newOrder
+    const slotMap = {}
+    oldOrder.forEach((origPage, oldIdx) => {
+      const newIdx = newOrder.indexOf(origPage)
+      if (newIdx !== -1) {
+        slotMap[oldIdx + 1] = newIdx + 1 // 1-based
+      }
+    })
+
+    setAnnotations(prev => {
+      const next = {}
+      for (const [slot, anns] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) {
+          next[newSlot] = anns.map(a => ({ ...a, pageIndex: newSlot }))
+        }
+      }
+      return next
+    })
+
+    setPageRotations(prev => {
+      const next = {}
+      for (const [slot, rot] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) next[newSlot] = rot
+      }
+      return next
+    })
+
+    const oldPaths = { ...drawPathsRef.current }
+    const newPaths = {}
+    for (const [slot, paths] of Object.entries(oldPaths)) {
+      const newSlot = slotMap[parseInt(slot)]
+      if (newSlot != null) newPaths[newSlot] = paths
+    }
+    drawPathsRef.current = newPaths
+  }
+
+  const reorderPages = (fromSlot, toSlot) => {
+    if (fromSlot === toSlot || !pdfJsDoc) return
+    const oldOrder = [...pageOrder]
+    const newOrder = [...pageOrder]
+    const [moved] = newOrder.splice(fromSlot - 1, 1)
+    newOrder.splice(toSlot - 1, 0, moved)
+
+    remapPageData(oldOrder, newOrder)
+    setPageOrder(newOrder)
+    setTotalPages(newOrder.length)
+    // Adjust currentPage
+    setCurrentPage(c => {
+      if (c === fromSlot) return toSlot
+      return c
+    })
+  }
+
+  const deletePageSlot = (displaySlot) => {
+    if (!pdfJsDoc || pageOrder.length <= 1) {
+      showToast('Cannot delete the only page')
+      return
+    }
+    const oldOrder = [...pageOrder]
+    const newOrder = oldOrder.filter((_, i) => i !== displaySlot - 1)
+    // Remap: after deletion, slots after fromSlot shift down by 1
+    const slotMap = {}
+    oldOrder.forEach((origPage, oldIdx) => {
+      if (oldIdx === displaySlot - 1) return // deleted
+      const newIdx = newOrder.indexOf(origPage)
+      if (newIdx !== -1) slotMap[oldIdx + 1] = newIdx + 1
+    })
+
+    setAnnotations(prev => {
+      const next = {}
+      for (const [slot, anns] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) next[newSlot] = anns.map(a => ({ ...a, pageIndex: newSlot }))
+      }
+      return next
+    })
+
+    setPageRotations(prev => {
+      const next = {}
+      for (const [slot, rot] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) next[newSlot] = rot
+      }
+      return next
+    })
+
+    const oldPaths = { ...drawPathsRef.current }
+    const newPaths = {}
+    for (const [slot, paths] of Object.entries(oldPaths)) {
+      const newSlot = slotMap[parseInt(slot)]
+      if (newSlot != null) newPaths[newSlot] = paths
+    }
+    drawPathsRef.current = newPaths
+
+    setPageOrder(newOrder)
+    setTotalPages(newOrder.length)
+    setCurrentPage(c => {
+      if (c === displaySlot) return Math.min(displaySlot, newOrder.length)
+      if (c > displaySlot) return c - 1
+      return c
+    })
+    showToast('Page deleted')
+  }
+
+  const rotatePage = (displaySlot, by = 90) => {
+    if (!pdfJsDoc) return
+    setPageRotations(prev => ({
+      ...prev,
+      [displaySlot]: ((prev[displaySlot] || 0) + by) % 360,
+    }))
+  }
+
+  const insertBlankPage = async (afterSlot) => {
+    if (!pdfJsDoc) return
+    // Create a blank 1-page PDF as a unique sentinel entry
+    // We store it as a negative unique id in pageOrder to distinguish it from real pages
+    const blankId = -(Date.now()) // unique negative integer
+    const blankDoc = await PDFDocument.create()
+    blankDoc.addPage([612, 792]) // letter size
+    const blankBytes = await blankDoc.save()
+    blankPageBuffers.current[blankId] = blankBytes.buffer.slice(0)
+
+    const newOrder = [...pageOrder]
+    newOrder.splice(afterSlot, 0, blankId)
+
+    // Remap: slots from afterSlot+1 onward shift up by 1
+    const oldOrder = [...pageOrder]
+    const oldLen = oldOrder.length
+    const slotMap = {}
+    for (let i = 0; i < oldLen; i++) {
+      const oldSlot = i + 1
+      const newSlot = oldSlot <= afterSlot ? oldSlot : oldSlot + 1
+      slotMap[oldSlot] = newSlot
+    }
+
+    setAnnotations(prev => {
+      const next = {}
+      for (const [slot, anns] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) next[newSlot] = anns.map(a => ({ ...a, pageIndex: newSlot }))
+      }
+      return next
+    })
+
+    setPageRotations(prev => {
+      const next = {}
+      for (const [slot, rot] of Object.entries(prev)) {
+        const newSlot = slotMap[parseInt(slot)]
+        if (newSlot != null) next[newSlot] = rot
+      }
+      return next
+    })
+
+    const oldPaths = { ...drawPathsRef.current }
+    const newPaths = {}
+    for (const [slot, paths] of Object.entries(oldPaths)) {
+      const newSlot = slotMap[parseInt(slot)]
+      if (newSlot != null) newPaths[newSlot] = paths
+    }
+    drawPathsRef.current = newPaths
+
+    setPageOrder(newOrder)
+    setTotalPages(newOrder.length)
+    setCurrentPage(afterSlot + 1)
+    showToast('Blank page inserted')
+  }
+
+  // Insert a PDF page from an uploaded file after afterSlot
+  const insertPDFPage = async (file, afterSlot) => {
+    if (!file || file.type !== 'application/pdf') return
+    try {
+      const buf = await file.arrayBuffer()
+      const importedDoc = await pdfjsLib.getDocument({ data: buf.slice() }).promise
+      if (importedDoc.numPages < 1) return
+
+      // We'll add the imported pages into a combined pdfArrayBuffer and update pdfJsDoc
+      // Strategy: rebuild the pdfArrayBuffer with inserted pages, then reload pdfJsDoc
+      const baseDoc = await PDFDocument.load(pdfArrayBuffer)
+      const srcDoc = await PDFDocument.load(buf)
+      const [importedPage] = await baseDoc.copyPages(srcDoc, [0]) // copy first page
+
+      // We need a unique slot for this page. We'll add it to the base PDF
+      // and track its original page number (which will be numPages + 1)
+      const newOrigPageNum = baseDoc.getPageCount() + 1
+      baseDoc.addPage(importedPage)
+      const newBuf = await baseDoc.save()
+      const newBufCopy = newBuf.buffer.slice(0)
+
+      const newDoc = await pdfjsLib.getDocument({ data: newBuf.slice() }).promise
+
+      const oldOrder = [...pageOrder]
+      const newOrder = [...pageOrder]
+      newOrder.splice(afterSlot, 0, newOrigPageNum)
+
+      // Remap slots from afterSlot+1 onward up by 1
+      const slotMap = {}
+      for (let i = 0; i < oldOrder.length; i++) {
+        const oldSlot = i + 1
+        const newSlot = oldSlot <= afterSlot ? oldSlot : oldSlot + 1
+        slotMap[oldSlot] = newSlot
+      }
+
+      setAnnotations(prev => {
+        const next = {}
+        for (const [slot, anns] of Object.entries(prev)) {
+          const ns = slotMap[parseInt(slot)]
+          if (ns != null) next[ns] = anns.map(a => ({ ...a, pageIndex: ns }))
+        }
+        return next
+      })
+
+      setPageRotations(prev => {
+        const next = {}
+        for (const [slot, rot] of Object.entries(prev)) {
+          const ns = slotMap[parseInt(slot)]
+          if (ns != null) next[ns] = rot
+        }
+        return next
+      })
+
+      const oldPaths = { ...drawPathsRef.current }
+      const newPaths = {}
+      for (const [slot, paths] of Object.entries(oldPaths)) {
+        const ns = slotMap[parseInt(slot)]
+        if (ns != null) newPaths[ns] = paths
+      }
+      drawPathsRef.current = newPaths
+
+      setPdfArrayBuffer(newBufCopy)
+      setPdfJsDoc(newDoc)
+      setPageOrder(newOrder)
+      setTotalPages(newOrder.length)
+      setCurrentPage(afterSlot + 1)
+      showToast('Page inserted from PDF')
+    } catch (e) {
+      showToast('Error inserting page: ' + e.message)
+    }
   }
 
   // ─── Draw paths ───────────────────────────────────────────
@@ -576,21 +857,58 @@ export default function PDFEditor() {
     if (!pdfArrayBuffer) return
     showToast('Preparing PDF…')
     try {
-      const doc = await PDFDocument.load(pdfArrayBuffer)
-      const pages = doc.getPages()
-      const hv = await doc.embedFont(StandardFonts.Helvetica)
-      const hvB = await doc.embedFont(StandardFonts.HelveticaBold)
-      const hvI = await doc.embedFont(StandardFonts.HelveticaOblique)
-      const hvBI = await doc.embedFont(StandardFonts.HelveticaBoldOblique)
+      // Build the output document respecting pageOrder and pageRotations
+      const srcDoc = await PDFDocument.load(pdfArrayBuffer)
+      const outDoc = await PDFDocument.create()
+      const hv = await outDoc.embedFont(StandardFonts.Helvetica)
+      const hvB = await outDoc.embedFont(StandardFonts.HelveticaBold)
+      const hvI = await outDoc.embedFont(StandardFonts.HelveticaOblique)
+      const hvBI = await outDoc.embedFont(StandardFonts.HelveticaBoldOblique)
 
-      for (let pNum = 1; pNum <= totalPages; pNum++) {
-        const pdfPage = pages[pNum - 1]
-        const { width: pW, height: pH } = pdfPage.getSize()
-        const jsPage = await pdfJsDoc.getPage(pNum)
-        const vp = jsPage.getViewport({ scale: zoom })
-        const cW = vp.width, cH = vp.height
+      const effectiveOrder = pageOrder.length > 0 ? pageOrder : Array.from({ length: totalPages }, (_, i) => i + 1)
 
-        const anns = annotations[pNum] || []
+      for (let displaySlot = 1; displaySlot <= effectiveOrder.length; displaySlot++) {
+        const origPageNum = effectiveOrder[displaySlot - 1]
+        let outPage
+
+        if (origPageNum < 1) {
+          // Blank page inserted
+          const blankBuf = blankPageBuffers.current[origPageNum]
+          if (blankBuf) {
+            const blankSrc = await PDFDocument.load(blankBuf)
+            const [bp] = await outDoc.copyPages(blankSrc, [0])
+            outDoc.addPage(bp)
+          } else {
+            outDoc.addPage([612, 792])
+          }
+          outPage = outDoc.getPage(outDoc.getPageCount() - 1)
+        } else {
+          const [copiedPage] = await outDoc.copyPages(srcDoc, [origPageNum - 1])
+          outDoc.addPage(copiedPage)
+          outPage = outDoc.getPage(outDoc.getPageCount() - 1)
+        }
+
+        // Apply accumulated rotation
+        const extraRot = pageRotations[displaySlot] || 0
+        if (extraRot !== 0) {
+          outPage.setRotation(degrees((outPage.getRotation().angle + extraRot) % 360))
+        }
+
+        // Get dimensions after rotation for coordinate mapping
+        const { width: pW, height: pH } = outPage.getSize()
+
+        // Get the pdfjs page for coordinate reference (only for original pages)
+        let cW = pW, cH = pH
+        if (origPageNum >= 1 && pdfJsDoc) {
+          try {
+            const jsPage = await pdfJsDoc.getPage(origPageNum)
+            const vp = jsPage.getViewport({ scale: zoom, rotation: (jsPage.rotate + extraRot) % 360 })
+            cW = vp.width; cH = vp.height
+          } catch {}
+        }
+
+        // Apply annotations for this display slot
+        const anns = annotations[displaySlot] || []
         for (const ann of anns) {
           if (ann.type === 'text' && ann.content?.trim()) {
             const pdfX = (ann.x / cW) * pW
@@ -598,7 +916,7 @@ export default function PDFEditor() {
             const font = ann.bold && ann.italic ? hvBI : ann.bold ? hvB : ann.italic ? hvI : hv
             const size = ann.fontSize * (pH / cH)
             const { r, g, b } = hexToRgb01(ann.color || '#000000')
-            pdfPage.drawText(ann.content, {
+            outPage.drawText(ann.content, {
               x: Math.max(0, pdfX),
               y: Math.max(0, pdfY),
               size, font, color: rgb(r, g, b),
@@ -608,10 +926,10 @@ export default function PDFEditor() {
               const res = await fetch(ann.imageData)
               const blob = await res.blob()
               const bytes = new Uint8Array(await blob.arrayBuffer())
-              const img = await doc.embedPng(bytes)
+              const img = await outDoc.embedPng(bytes)
               const pdfX = (ann.x / cW) * pW
               const pdfY = pH - ((ann.y + ann.height) / cH) * pH
-              pdfPage.drawImage(img, {
+              outPage.drawImage(img, {
                 x: Math.max(0, pdfX),
                 y: Math.max(0, pdfY),
                 width: (ann.width / cW) * pW,
@@ -621,8 +939,8 @@ export default function PDFEditor() {
           }
         }
 
-        // Embed draw layer
-        const paths = drawPathsRef.current[pNum]
+        // Embed draw layer for this display slot
+        const paths = drawPathsRef.current[displaySlot]
         if (paths?.length) {
           const tmp = document.createElement('canvas')
           tmp.width = cW; tmp.height = cH
@@ -638,13 +956,13 @@ export default function PDFEditor() {
           try {
             const res = await fetch(tmp.toDataURL('image/png'))
             const bytes = new Uint8Array(await (await res.blob()).arrayBuffer())
-            const img = await doc.embedPng(bytes)
-            pdfPage.drawImage(img, { x: 0, y: 0, width: pW, height: pH })
+            const img = await outDoc.embedPng(bytes)
+            outPage.drawImage(img, { x: 0, y: 0, width: pW, height: pH })
           } catch {}
         }
       }
 
-      const bytes = await doc.save()
+      const bytes = await outDoc.save()
       const blob = new Blob([bytes], { type: 'application/pdf' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -749,6 +1067,17 @@ export default function PDFEditor() {
         >
           <Upload size={14} /> Open PDF
         </button>
+
+        {/* Prepare to Sign — launches SigningSetup for this PDF */}
+        {pdfJsDoc && (
+          <button onClick={() => navigate('/signing-setup', { state: { localFileUrl: filename ? undefined : null, pdfReady: true } })}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, border: 'none', background: 'rgba(124,58,237,.15)', color: '#a78bfa', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,.25)'; e.currentTarget.style.color = '#c4b5fd' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,58,237,.15)'; e.currentTarget.style.color = '#a78bfa' }}
+          >
+            <FileSignature size={14} /> Prepare to Sign
+          </button>
+        )}
 
         <button onClick={savePDF} disabled={!pdfJsDoc}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 6, border: 'none', background: pdfJsDoc ? '#4f8ef7' : '#1f2937', color: pdfJsDoc ? '#fff' : '#4b5563', cursor: pdfJsDoc ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
@@ -862,25 +1191,90 @@ export default function PDFEditor() {
 
         {/* LEFT SIDEBAR */}
         {sidebarOpen && (
-          <div style={{ width: 190, background: '#111827', borderRight: '1px solid rgba(255,255,255,.04)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden' }}>
+          <div style={{ width: 200, background: '#111827', borderRight: '1px solid rgba(255,255,255,.04)', display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden' }}>
             <div style={{ padding: '10px 12px 6px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em' }}>Pages</span>
               {totalPages > 0 && <span style={{ color: '#4b5563', fontSize: 11 }}>{totalPages} total</span>}
             </div>
+            {/* Insert page actions */}
+            {pdfJsDoc && (
+              <div style={{ display: 'flex', gap: 4, padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                <button
+                  onClick={() => insertBlankPage(currentPage)}
+                  title="Insert blank page after current"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '5px 4px', borderRadius: 5, border: 'none', background: 'rgba(255,255,255,.06)', color: '#9ca3af', cursor: 'pointer', fontSize: 11 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.12)'; e.currentTarget.style.color = '#fff' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.06)'; e.currentTarget.style.color = '#9ca3af' }}
+                >
+                  <FilePlus size={12} /> Blank
+                </button>
+                <button
+                  onClick={() => insertFileInputRef.current?.click()}
+                  title="Insert page from PDF after current"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '5px 4px', borderRadius: 5, border: 'none', background: 'rgba(255,255,255,.06)', color: '#9ca3af', cursor: 'pointer', fontSize: 11 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.12)'; e.currentTarget.style.color = '#fff' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,.06)'; e.currentTarget.style.color = '#9ca3af' }}
+                >
+                  <Upload size={12} /> PDF
+                </button>
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {!pdfJsDoc ? (
                 <div style={{ color: '#374151', fontSize: 12, textAlign: 'center', padding: '24px 8px' }}>Open a PDF to see pages</div>
               ) : (
-                Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
-                  <div key={n} onClick={() => goToPage(n)}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: 5, borderRadius: 5, cursor: 'pointer', background: currentPage === n ? 'rgba(79,142,247,.12)' : 'transparent', transition: 'background .12s' }}
+                Array.from({ length: pageOrder.length || totalPages }, (_, i) => i + 1).map(n => (
+                  <div key={n}
+                    draggable
+                    onDragStart={() => setThumbDragSrc(n)}
+                    onDragOver={e => { e.preventDefault() }}
+                    onDrop={e => {
+                      e.preventDefault()
+                      if (thumbDragSrc != null && thumbDragSrc !== n) {
+                        reorderPages(thumbDragSrc, n)
+                      }
+                      setThumbDragSrc(null)
+                    }}
+                    onDragEnd={() => setThumbDragSrc(null)}
+                    onClick={() => goToPage(n)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: 5,
+                      borderRadius: 5, cursor: 'grab',
+                      background: currentPage === n ? 'rgba(79,142,247,.12)' : thumbDragSrc === n ? 'rgba(255,255,255,.08)' : 'transparent',
+                      opacity: thumbDragSrc === n ? 0.5 : 1,
+                      transition: 'background .12s',
+                      outline: thumbDragSrc != null && thumbDragSrc !== n ? '1px dashed rgba(79,142,247,.4)' : 'none',
+                    }}
                     onMouseEnter={e => { if (currentPage !== n) e.currentTarget.style.background = 'rgba(255,255,255,.04)' }}
-                    onMouseLeave={e => { if (currentPage !== n) e.currentTarget.style.background = 'transparent' }}
+                    onMouseLeave={e => { if (currentPage !== n && thumbDragSrc !== n) e.currentTarget.style.background = 'transparent' }}
                   >
-                    <div style={{ background: 'white', borderRadius: 3, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,.4)', border: `2px solid ${currentPage === n ? '#4f8ef7' : 'transparent'}`, width: '100%' }}>
+                    <div style={{ background: 'white', borderRadius: 3, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,.4)', border: `2px solid ${currentPage === n ? '#4f8ef7' : 'transparent'}`, width: '100%', position: 'relative' }}>
                       <canvas ref={el => { if (el) thumbnailRefs.current[n] = el }} style={{ display: 'block', width: '100%' }} />
+                      {(pageRotations[n] || 0) !== 0 && (
+                        <div style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(79,142,247,.8)', borderRadius: 3, padding: '1px 4px', fontSize: 9, color: '#fff' }}>
+                          {(pageRotations[n] || 0)}°
+                        </div>
+                      )}
                     </div>
-                    <span style={{ color: currentPage === n ? '#4f8ef7' : '#6b7280', fontSize: 11 }}>{n}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+                      <span style={{ color: currentPage === n ? '#4f8ef7' : '#6b7280', fontSize: 11, flex: 1, textAlign: 'center' }}>{n}</span>
+                      <div style={{ display: 'flex', gap: 2 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); rotatePage(n, 90) }}
+                          title="Rotate 90°"
+                          style={{ width: 20, height: 20, border: 'none', background: 'transparent', color: '#4b5563', cursor: 'pointer', borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; e.currentTarget.style.color = '#9ca3af' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#4b5563' }}
+                        ><RotateCw size={11} /></button>
+                        <button
+                          onClick={e => { e.stopPropagation(); deletePageSlot(n) }}
+                          title="Delete page"
+                          style={{ width: 20, height: 20, border: 'none', background: 'transparent', color: '#4b5563', cursor: 'pointer', borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,.15)'; e.currentTarget.style.color = '#ef4444' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#4b5563' }}
+                        ><Trash size={11} /></button>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -1168,6 +1562,11 @@ export default function PDFEditor() {
       )}
 
       <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handleFileInput} />
+      <input ref={insertFileInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => {
+        const f = e.target.files[0]
+        if (f) insertPDFPage(f, currentPage)
+        e.target.value = ''
+      }} />
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

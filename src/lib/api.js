@@ -29,8 +29,98 @@ export const api = {
   deleteFile: (id) =>
     request(`/files/${id}`, { method: 'DELETE' }),
 
+  // OFFICE-08: version history
+  listVersions: (id) => request(`/files/${id}/versions`),
+  restoreVersion: (id, vid) =>
+    request(`/files/${id}/versions/${vid}/restore`, { method: 'POST' }),
+
+  // OFFICE-28: activity feed + named snapshots
+  getActivity: (id) => request(`/files/${id}/activity`),
+  createNamedSnapshot: (id, label) =>
+    request(`/files/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
+  labelVersion: (id, vid, label) =>
+    request(`/files/${id}/versions/${vid}/label`, { method: 'PUT', body: JSON.stringify({ label }) }),
+
+  // OFFICE-27: suggestions / track-changes
+  listSuggestions: (fileId) => request(`/files/${fileId}/suggestions`),
+  createSuggestion: (fileId, kind, authorId, from, to, text) =>
+    request(`/files/${fileId}/suggestions`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, author_id: authorId, from, to, text }),
+    }),
+  updateSuggestion: (fileId, suggestionId, state, reviewerId = '') =>
+    request(`/files/${fileId}/suggestions/${suggestionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ state, reviewer_id: reviewerId }),
+    }),
+  deleteSuggestion: (fileId, suggestionId) =>
+    request(`/files/${fileId}/suggestions/${suggestionId}`, { method: 'DELETE' }),
+
+  // OFFICE-26: comments (anchored, threaded, resolvable)
+  listComments: (fileId) => request(`/files/${fileId}/comments`),
+  createComment: (fileId, anchor, authorId, body) =>
+    request(`/files/${fileId}/comments`, { method: 'POST', body: JSON.stringify({ anchor, author_id: authorId, body }) }),
+  updateComment: (fileId, commentId, patch) =>
+    request(`/files/${fileId}/comments/${commentId}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteComment: (fileId, commentId) =>
+    request(`/files/${fileId}/comments/${commentId}`, { method: 'DELETE' }),
+  createReply: (fileId, commentId, authorId, body) =>
+    request(`/files/${fileId}/comments/${commentId}/replies`, { method: 'POST', body: JSON.stringify({ author_id: authorId, body }) }),
+  updateReply: (fileId, commentId, replyId, patch) =>
+    request(`/files/${fileId}/comments/${commentId}/replies/${replyId}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteReply: (fileId, commentId, replyId) =>
+    request(`/files/${fileId}/comments/${commentId}/replies/${replyId}`, { method: 'DELETE' }),
+
   scanLocalFiles: () => request('/local-files'),
   localFileUrl: (path) => `${BASE}/local-files/serve?path=${encodeURIComponent(path)}`,
+
+  // OFFICE-60/61: Forum API
+  forumListChannels: () => request('/forum/channels'),
+  forumCreateChannel: (name, type, members = []) =>
+    request('/forum/channels', { method: 'POST', body: JSON.stringify({ name, type, members }) }),
+  forumJoinChannel: (channelId) =>
+    request(`/forum/channels/${channelId}/join`, { method: 'POST' }),
+  forumListMembers: (channelId) => request(`/forum/channels/${channelId}/members`),
+  forumListMessages: (channelId) => request(`/forum/channels/${channelId}/messages`),
+  forumSendMessage: (channelId, body, threadParent = '') =>
+    request(`/forum/channels/${channelId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ body, thread_parent: threadParent }),
+    }),
+  forumEditMessage: (channelId, msgId, body) =>
+    request(`/forum/channels/${channelId}/messages/${msgId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ body }),
+    }),
+  forumDeleteMessage: (channelId, msgId) =>
+    request(`/forum/channels/${channelId}/messages/${msgId}`, { method: 'DELETE' }),
+  forumMarkRead: (channelId, clock) =>
+    request(`/forum/channels/${channelId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ clock }),
+    }),
+  forumGetReadState: (channelId) => request(`/forum/channels/${channelId}/read`),
+  forumExportOps: (channelId, afterClock = '') =>
+    request(`/forum/channels/${channelId}/ops${afterClock ? `?after=${encodeURIComponent(afterClock)}` : ''}`),
+
+  // OFFICE-41: signing envelope CRUD
+  listEnvelopes: () => request('/envelopes'),
+  getEnvelope: (id) => request(`/envelopes/${id}`),
+  createEnvelope: (env) =>
+    request('/envelopes', { method: 'POST', body: JSON.stringify(env) }),
+  updateEnvelope: (id, env) =>
+    request(`/envelopes/${id}`, { method: 'PUT', body: JSON.stringify(env) }),
+  deleteEnvelope: (id) =>
+    request(`/envelopes/${id}`, { method: 'DELETE' }),
+
+  // OFFICE-45: orchestration — status, remind, cancel, decline
+  envelopeStatus: (envelopeId) => request(`/sign/${envelopeId}/status`),
+  envelopeRemind: (envelopeId) =>
+    request(`/sign/${envelopeId}/remind`, { method: 'POST', body: '{}' }),
+  envelopeCancel: (envelopeId) =>
+    request(`/sign/${envelopeId}/cancel`, { method: 'POST', body: '{}' }),
+  signerDecline: (token) =>
+    request(`/sign/${token}/decline`, { method: 'POST', body: '{}' }),
 
   uploadImage: async (file) => {
     const token = localStorage.getItem('session_token')

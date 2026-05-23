@@ -10,12 +10,16 @@ import Color from '@tiptap/extension-color'
 import Placeholder from '@tiptap/extension-placeholder'
 import {
   ArrowLeft, Save, Loader2, Play, Plus, Trash2,
-  ChevronUp, ChevronDown, Download, EyeOff,
+  ChevronUp, ChevronDown, Download, EyeOff, MessageSquare,
 } from 'lucide-react'
 import { useFilesStore } from '../../store/filesStore'
 import { api } from '../../lib/api'
 import SlidePreview from './SlidePreview'
 import { exportSlidesToPdf, exportSlidesToPptx } from './slidesExport'
+import { TreeSession, getTreeReplicaId, ordKeyBetween } from '../../lib/crdt/tree.js'
+import CommentsPanel from '../../components/CommentsPanel'
+import { useLiveCursors } from '../../lib/useLiveCursors.js'
+import { getSlideViewers } from '../../components/RemoteCursors.jsx'
 
 const THEMES = ['black', 'white', 'league', 'beige', 'sky', 'night', 'serif', 'simple', 'solarized', 'moon', 'dracula']
 const TRANSITIONS = ['none', 'fade', 'slide', 'convex', 'concave', 'zoom']
@@ -41,10 +45,16 @@ export default function SlidesEditor() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(true)
   const [presenting, setPresenting] = useState(false)
+  const [showComments, setShowComments] = useState(false)
   const saveTimer = useRef(null)
   const imgInput = useRef(null)
+  const treeSessionRef = useRef(null)
 
   const activeSlide = slidesData.slides[activeIdx] ?? slidesData.slides[0]
+
+  // ── OFFICE-25: Live cursors (slide viewers) ───────────────────────────────
+  // fabric is null until OFFICE-20 is wired; hook is a graceful no-op.
+  const { remoteCursors, broadcastSlideCursor } = useLiveCursors({ fabric: null, localIdentity: null, color: '#f59e0b' })
 
   const editor = useEditor({
     extensions: [
@@ -72,11 +82,70 @@ export default function SlidesEditor() {
     }
   }, [id])
 
+  // OFFICE-23: boot a TreeSession for CRDT collaboration on this presentation.
+  // fabricClient is null until OFFICE-20 is wired; runs local-only in the meantime.
+  useEffect(() => {
+    if (!id) return
+    const replicaId = getTreeReplicaId()
+    const session = new TreeSession({ sessionId: id, replicaId, fabricClient: null })
+    treeSessionRef.current = session
+
+    // Seed the CRDT with the initial slides so we have nodes for them.
+    // Only insert nodes that the CRDT doesn't already know about (idempotent).
+    // We wait until slidesData is populated via the file load above.
+    // We defer to next tick to allow state to settle.
+    const seedTimer = setTimeout(() => {
+      setSlidesData((current) => {
+        const existing = session.orderedSlides().map((s) => s.nodeId)
+        current.slides.forEach((slide, idx) => {
+          if (!existing.includes(slide.id)) {
+            const ordKey = String(idx).padStart(10, '0')
+            // Insert using the existing slide.id as the CRDT node id.
+            // We call internal ops directly via insertSlide (which generates its
+            // own id), so instead we use setSlide to upsert the content only —
+            // to keep the slide.id stable we store data keyed by slide.id.
+            // Preferred: use insertSlide but pass an ordKey that reflects order.
+            session.insertSlide(ordKey, slide)
+          }
+        })
+        return current
+      })
+    }, 0)
+
+    session.requestSnapshot()
+
+    // On remote op — merge CRDT tree into local slidesData.
+    const onRemote = () => {
+      const crdtSlides = session.orderedSlides()
+      if (crdtSlides.length === 0) return
+      setSlidesData((prev) => {
+        const next = {
+          ...prev,
+          slides: crdtSlides
+            .filter((s) => s.data && typeof s.data === 'object')
+            .map((s) => ({ ...s.data })),
+        }
+        schedule(next)
+        return next
+      })
+    }
+
+    session.addEventListener('remoteOp', onRemote)
+    return () => {
+      clearTimeout(seedTimer)
+      session.removeEventListener('remoteOp', onRemote)
+      session.destroy()
+      treeSessionRef.current = null
+    }
+  }, [id]) // eslint-disable-line
+
   // Sync editor when switching slides
   useEffect(() => {
     if (editor && activeSlide) {
       editor.commands.setContent(activeSlide.content || '<p></p>', false)
     }
+    // OFFICE-25: broadcast which slide the local user is viewing.
+    if (activeSlide?.id) broadcastSlideCursor(activeSlide.id)
   }, [activeIdx]) // eslint-disable-line
 
   const autosave = useCallback(async (sd) => {
@@ -102,16 +171,34 @@ export default function SlidesEditor() {
       slides[idx] = { ...slides[idx], [field]: value }
       const next = { ...prev, slides }
       schedule(next)
+      // OFFICE-23: broadcast updated slide content via CRDT.
+      const session = treeSessionRef.current
+      if (session) {
+        const slide = slides[idx]
+        session.setSlide(slide.id, slide)
+        session.saveLocal()
+      }
       return next
     })
   }
 
   const addSlide = () => {
     setSlidesData((prev) => {
-      const slides = [...prev.slides, newSlide()]
+      const slide = newSlide()
+      const slides = [...prev.slides, slide]
       const next = { ...prev, slides }
       schedule(next)
       setActiveIdx(slides.length - 1)
+      // OFFICE-23: insert the new slide into the CRDT tree.
+      const session = treeSessionRef.current
+      if (session) {
+        const prevOrdKey = slides.length >= 2
+          ? String(slides.length - 2).padStart(10, '0')
+          : ''
+        const ordKey = ordKeyBetween(prevOrdKey, '')
+        session.insertSlide(ordKey, slide)
+        session.saveLocal()
+      }
       return next
     })
   }
@@ -119,10 +206,17 @@ export default function SlidesEditor() {
   const deleteSlide = (idx) => {
     setSlidesData((prev) => {
       if (prev.slides.length === 1) return prev
+      const slide = prev.slides[idx]
       const slides = prev.slides.filter((_, i) => i !== idx)
       const next = { ...prev, slides }
       schedule(next)
       setActiveIdx(Math.min(idx, slides.length - 1))
+      // OFFICE-23: tombstone the deleted slide in the CRDT.
+      const session = treeSessionRef.current
+      if (session) {
+        session.deleteSlide(slide.id)
+        session.saveLocal()
+      }
       return next
     })
   }
@@ -136,6 +230,15 @@ export default function SlidesEditor() {
       const next = { ...prev, slides }
       schedule(next)
       setActiveIdx(newIdx)
+      // OFFICE-23: update ordKey for the moved slide.
+      const session = treeSessionRef.current
+      if (session) {
+        const beforeKey = newIdx > 0 ? String(newIdx - 1).padStart(10, '0') : ''
+        const afterKey  = newIdx < slides.length - 1 ? String(newIdx + 1).padStart(10, '0') : ''
+        const newOrdKey = ordKeyBetween(beforeKey, afterKey)
+        session.moveSlide(slides[newIdx].id, newOrdKey)
+        session.saveLocal()
+      }
       return next
     })
   }
@@ -178,6 +281,13 @@ export default function SlidesEditor() {
         />
         <span className="text-xs text-gray-400 hidden sm:block">{saving ? 'Saving…' : saved ? 'Saved' : 'Unsaved'}</span>
         <button
+          onClick={() => setShowComments(v => !v)}
+          title="Comments"
+          className={`p-1.5 rounded-lg transition ${showComments ? 'bg-amber-100 text-amber-600' : 'hover:bg-gray-100 text-gray-500'}`}
+        >
+          <MessageSquare size={16} />
+        </button>
+        <button
           onClick={() => setPresenting(!presenting)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition"
         >
@@ -212,27 +322,47 @@ export default function SlidesEditor() {
               <button onClick={addSlide} className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition"><Plus size={14} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-              {slidesData.slides.map((slide, idx) => (
-                <div
-                  key={slide.id}
-                  onClick={() => setActiveIdx(idx)}
-                  className={`group relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${idx === activeIdx ? 'border-amber-500' : 'border-transparent hover:border-gray-600'}`}
-                >
+              {slidesData.slides.map((slide, idx) => {
+                const viewers = getSlideViewers(remoteCursors, slide.id)
+                return (
                   <div
-                    className="h-24 bg-gray-800 flex flex-col items-center justify-center p-2 text-center"
-                    style={{ background: slide.background || undefined }}
+                    key={slide.id}
+                    onClick={() => setActiveIdx(idx)}
+                    className={`group relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${idx === activeIdx ? 'border-amber-500' : 'border-transparent hover:border-gray-600'}`}
                   >
-                    <div className="text-white text-xs font-bold truncate w-full">{slide.title || `Slide ${idx + 1}`}</div>
-                    <div className="text-gray-400 text-[9px] mt-1 w-full overflow-hidden line-clamp-3" dangerouslySetInnerHTML={{ __html: slide.content }} />
+                    <div
+                      className="h-24 bg-gray-800 flex flex-col items-center justify-center p-2 text-center"
+                      style={{ background: slide.background || undefined }}
+                    >
+                      <div className="text-white text-xs font-bold truncate w-full">{slide.title || `Slide ${idx + 1}`}</div>
+                      <div className="text-gray-400 text-[9px] mt-1 w-full overflow-hidden line-clamp-3" dangerouslySetInnerHTML={{ __html: slide.content }} />
+                    </div>
+                    <div className="absolute top-1 left-1 text-[9px] text-gray-500 bg-black/40 px-1 rounded">{idx + 1}</div>
+                    {/* OFFICE-25: remote viewer badges */}
+                    {viewers.length > 0 && (
+                      <div className="absolute bottom-1 left-1 flex gap-0.5">
+                        {viewers.map((v) => (
+                          <span
+                            key={v.accountId}
+                            title={v.displayName}
+                            style={{ background: v.color }}
+                            className="flex items-center justify-center rounded-full text-white font-bold select-none"
+                            aria-label={v.displayName}
+                            {...{ style: { background: v.color, width: 14, height: 14, fontSize: 8, borderRadius: '50%' } }}
+                          >
+                            {(v.displayName || '?')[0].toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="absolute top-1 right-1 hidden group-hover:flex gap-0.5">
+                      <button onClick={(e) => { e.stopPropagation(); moveSlide(idx, -1) }} className="p-0.5 rounded bg-black/50 text-gray-300 hover:text-white"><ChevronUp size={10} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); moveSlide(idx, 1) }} className="p-0.5 rounded bg-black/50 text-gray-300 hover:text-white"><ChevronDown size={10} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteSlide(idx) }} className="p-0.5 rounded bg-black/50 text-red-400 hover:text-red-300"><Trash2 size={10} /></button>
+                    </div>
                   </div>
-                  <div className="absolute top-1 left-1 text-[9px] text-gray-500 bg-black/40 px-1 rounded">{idx + 1}</div>
-                  <div className="absolute top-1 right-1 hidden group-hover:flex gap-0.5">
-                    <button onClick={(e) => { e.stopPropagation(); moveSlide(idx, -1) }} className="p-0.5 rounded bg-black/50 text-gray-300 hover:text-white"><ChevronUp size={10} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); moveSlide(idx, 1) }} className="p-0.5 rounded bg-black/50 text-gray-300 hover:text-white"><ChevronDown size={10} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(idx) }} className="p-0.5 rounded bg-black/50 text-red-400 hover:text-red-300"><Trash2 size={10} /></button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="px-3 py-3 border-t border-gray-800 space-y-2">
               <div>
@@ -302,6 +432,15 @@ export default function SlidesEditor() {
                 />
               </div>
             </div>
+          )}
+
+          {/* Comments panel (OFFICE-26) */}
+          {showComments && (
+            <CommentsPanel
+              fileId={id}
+              anchorCtx={activeSlide ? { type: 'slide', slide_id: activeSlide.id, snapshot: activeSlide.title || `Slide ${activeIdx + 1}` } : null}
+              onClose={() => setShowComments(false)}
+            />
           )}
         </div>
       )}

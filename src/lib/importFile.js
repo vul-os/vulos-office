@@ -114,7 +114,21 @@ async function convertToSheetContent(file) {
         celldata.push({ r, c, v: { v, m, ...(f ? { f } : {}) } })
       }
     }
-    return { name, celldata, config: {} }
+    // Preserve merged cells (!merges array → Fortune Sheet mc config)
+    const merges = ws['!merges'] || []
+    const mc = {}
+    for (const merge of merges) {
+      // merge: { s: {r,c}, e: {r,c} }
+      const key = `${merge.s.r}_${merge.s.c}`
+      mc[key] = {
+        r: merge.s.r,
+        c: merge.s.c,
+        rs: merge.e.r - merge.s.r + 1,
+        cs: merge.e.c - merge.s.c + 1,
+      }
+    }
+    const config = merges.length ? { merge: mc } : {}
+    return { name, celldata, config }
   })
 }
 
@@ -260,7 +274,15 @@ export async function importFromUrl(localFile, navigate) {
             celldata.push({ r, c, v: { v, m: cell.w || String(v), ...(cell.f ? { f: `=${cell.f}` } : {}) } })
           }
         }
-        return { name: sname, celldata, config: {} }
+        // Preserve merged cells (!merges → Fortune Sheet mc config)
+        const merges = ws['!merges'] || []
+        const mc = {}
+        for (const merge of merges) {
+          const key = `${merge.s.r}_${merge.s.c}`
+          mc[key] = { r: merge.s.r, c: merge.s.c, rs: merge.e.r - merge.s.r + 1, cs: merge.e.c - merge.s.c + 1 }
+        }
+        const config = merges.length ? { merge: mc } : {}
+        return { name: sname, celldata, config }
       })
     }
   }
