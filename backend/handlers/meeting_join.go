@@ -18,12 +18,23 @@ package handlers
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 
 	meetingsvc "vulos-office/backend/services/meeting"
 
 	"github.com/gin-gonic/gin"
 )
+
+// roomIDRe validates that a room ID is exactly 22 URL-safe base64 characters.
+// Case-sensitive matching is enforced to preserve the full 132-bit entropy of
+// the room ID (lowercasing would reduce the alphabet and entropy).
+// Format: ^[A-Za-z0-9_-]{22}$
+var roomIDRe = regexp.MustCompile(`^[A-Za-z0-9_\-]{22}$`)
+
+func validRoomID(roomID string) bool {
+	return roomIDRe.MatchString(roomID)
+}
 
 // MeetJoinHandler issues join tokens and manages lobby state.
 type MeetJoinHandler struct {
@@ -45,8 +56,8 @@ func (h *MeetJoinHandler) IssueToken(c *gin.Context) {
 	}
 
 	roomID := c.Param("roomId")
-	if roomID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "room_id required"})
+	if roomID == "" || !validRoomID(roomID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid room_id: must be 22 URL-safe base64 characters [A-Za-z0-9_-]"})
 		return
 	}
 
@@ -105,6 +116,10 @@ func (h *MeetJoinHandler) IssueToken(c *gin.Context) {
 // Called by a participant who has a valid token and is entering the lobby.
 func (h *MeetJoinHandler) LobbyEnter(c *gin.Context) {
 	roomID := c.Param("roomId")
+	if !validRoomID(roomID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid room_id"})
+		return
+	}
 	tokenStr := c.GetHeader("X-Meet-Token")
 	if tokenStr == "" {
 		// Also accept from body
@@ -131,6 +146,17 @@ func (h *MeetJoinHandler) LobbyEnter(c *gin.Context) {
 	}
 	if meetingsvc.Default().IsDenied(roomID, claims.Nonce) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "entry denied"})
+		return
+	}
+
+	// Enforce per-room participant cap at the app layer.
+	if meetingsvc.ParticipantCount(roomID) >= meetingsvc.MaxRoomPeers {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":       "room is at capacity",
+			"max_peers":   meetingsvc.MaxRoomPeers,
+			"retry_after": 30,
+		})
 		return
 	}
 

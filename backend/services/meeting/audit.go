@@ -54,6 +54,19 @@ func (a *AuditLog) ListByRoom(roomID string) []*JoinAuditEvent {
 	return out
 }
 
+// ListByAccountID returns all events for a given account_id (chronological order).
+func (a *AuditLog) ListByAccountID(accountID string) []*JoinAuditEvent {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var out []*JoinAuditEvent
+	for _, ev := range a.events {
+		if ev.AccountID == accountID {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
 // Len returns total number of events (for testing).
 func (a *AuditLog) Len() int {
 	a.mu.RLock()

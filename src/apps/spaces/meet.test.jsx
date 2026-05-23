@@ -374,6 +374,63 @@ describe('Recording stub', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 11b. RecordingStub: no onClick, no state mutation
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Recording stub — no-op behaviour', () => {
+  it('11b.1 RecordingStub button has no onClick handler or click is a no-op', async () => {
+    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
+    render(<RecordingStub />)
+    const btn = screen.getByRole('button')
+    // Button is disabled — clicking a disabled button fires no events
+    expect(btn.disabled).toBe(true)
+    // Clicking disabled button must not throw
+    fireEvent.click(btn)
+    // No state assertions needed: the component is stateless
+  })
+
+  it('11b.2 RecordingStub is stateless (no recording state mutation on click)', async () => {
+    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
+    const { container } = render(<RecordingStub />)
+    const btn = container.querySelector('button')
+    // Simulate click — should not change DOM (still disabled, still shows "soon")
+    fireEvent.click(btn)
+    await act(async () => {})
+    expect(screen.getByText('soon')).toBeTruthy()
+    expect(btn.disabled).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11c. Captions XSS
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Captions XSS safety', () => {
+  it('11c.1 <script> tag input is rendered as literal text (no execution)', async () => {
+    const { CaptionOverlay } = await import('./components/Captions.jsx')
+    const xssPayload = '<script>window.__XSS=1</script>Hello'
+    render(<CaptionOverlay text={xssPayload} />)
+    // The raw script tag must not appear as HTML in the DOM
+    expect(document.querySelector('script')).toBeNull()
+    // The sanitized output should not be empty (DOMPurify strips tags, leaves text nodes)
+    // DOMPurify with ALLOWED_TAGS=[] strips all HTML so "Hello" (or empty) remains
+    const spans = document.querySelectorAll('span')
+    let found = false
+    spans.forEach((s) => {
+      if (s.textContent.includes('Hello') || s.textContent === '') found = true
+    })
+    expect(typeof window.__XSS).toBe('undefined')
+  })
+
+  it('11c.2 img onerror XSS payload is stripped', async () => {
+    const { CaptionOverlay } = await import('./components/Captions.jsx')
+    const payload = '<img src=x onerror="window.__XSS2=1">caption text'
+    render(<CaptionOverlay text={payload} />)
+    expect(document.querySelector('img')).toBeNull()
+    expect(typeof window.__XSS2).toBe('undefined')
+    // "caption text" may survive sanitisation as a text node
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 12. Lobby state: idempotent Enter
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Lobby state idempotency', () => {

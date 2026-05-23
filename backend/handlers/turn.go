@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -22,7 +22,7 @@ import (
 //   * If env VULOS_TURN_URLS is set (comma-separated, e.g.
 //     "turn:turn.vulos.org:3478,turns:turn.vulos.org:5349") and
 //     VULOS_TURN_SECRET is set, returns coturn-style time-limited credentials
-//     (username = "<expiry-unix>:<userId>", password = base64(HMAC-SHA1(secret, username))).
+//     (username = "<expiry-unix>:<userId>", password = base64(HMAC-SHA256(secret, username))).
 //   * Otherwise returns a public-STUN-only configuration suitable for
 //     same-NAT / dev use; the client treats this as "no TURN" and will
 //     surface direct-only connectivity.
@@ -62,7 +62,7 @@ func (h *TURNHandler) Credentials(c *gin.Context) {
 			userID = c.ClientIP()
 		}
 		username := fmt.Sprintf("%d:%s", expiry, userID)
-		mac := hmac.New(sha1.New, []byte(secret))
+		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write([]byte(username))
 		cred := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 		servers = append(servers, iceServer{

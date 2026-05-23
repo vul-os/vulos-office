@@ -138,9 +138,23 @@ export default function BackgroundBlur({ call, enabled, onToggle, previewRef }) 
       if (processorRef.current) {
         if (processorRef.current.type === 'canvas') {
           processorRef.current.proc.stop()
+        } else if (processorRef.current.type === 'insertable') {
+          try { processorRef.current.generator.stop() } catch (_) {}
         }
         call.replaceVideoTrack(localTrack)
         if (previewRef?.current) previewRef.current.srcObject = call.localStream
+        processorRef.current = null
+      }
+    }
+
+    // Cleanup: stop processor when the effect re-runs (call/enabled changed) or on unmount.
+    return () => {
+      if (processorRef.current) {
+        if (processorRef.current.type === 'canvas') {
+          processorRef.current.proc.stop()
+        } else if (processorRef.current.type === 'insertable') {
+          try { processorRef.current.generator.stop() } catch (_) {}
+        }
         processorRef.current = null
       }
     }

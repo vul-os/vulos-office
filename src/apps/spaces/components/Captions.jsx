@@ -17,8 +17,20 @@
  *   identity   — { displayName } for the caption label
  */
 import { useEffect, useRef, useCallback } from 'react'
+import DOMPurify from 'dompurify'
 import { Captions as CaptionsIcon, CaptionsOff } from 'lucide-react'
 import { Tooltip } from '../../../components/ui'
+
+/**
+ * sanitizeCaption strips any HTML/script content from a caption string before
+ * rendering it. React's JSX interpolation already auto-escapes, so this is a
+ * defence-in-depth measure against future code changes that might introduce
+ * dangerouslySetInnerHTML. Returns a plain-text string.
+ */
+function sanitizeCaption(text) {
+  if (typeof text !== 'string') return ''
+  return DOMPurify.sanitize(text, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+}
 
 function getSpeechRecognition() {
   return (
@@ -143,7 +155,10 @@ export default function Captions({ call, enabled, onToggle, identity }) {
  * Receives the latest caption text for a given peer id.
  */
 export function CaptionOverlay({ text }) {
-  if (!text) return null
+  // sanitizeCaption strips HTML tags — defence in depth even though React
+  // auto-escapes JSX interpolation. Never use dangerouslySetInnerHTML here.
+  const safeText = sanitizeCaption(text)
+  if (!safeText) return null
   return (
     <div
       className="absolute bottom-8 left-2 right-2 flex justify-center pointer-events-none"
@@ -154,7 +169,7 @@ export function CaptionOverlay({ text }) {
         className="max-w-full px-2 py-1 rounded-sm text-2xs text-paper text-center leading-snug tracking-tightish"
         style={{ background: 'rgba(26,25,22,.78)', backdropFilter: 'blur(2px)' }}
       >
-        {text}
+        {safeText}
       </span>
     </div>
   )
