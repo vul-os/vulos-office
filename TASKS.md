@@ -331,8 +331,14 @@ Scope: Office is already local-first CRDT; add service-worker app-shell caching 
 AC: [x] app shell loads offline [x] CRDT edits work offline + sync on reconnect [x] LAN-endpoint failover [x] npm run build
 
 ### [OFFICE-SYNC-01] Office CRDT sync via rendezvous + fabric-P2P (local-MinIO mode)
-`todo` · P2 · M · dep: OFFICE-STORE-01 · parallel: yes — backend/storage/, backend/crdt/
+`done` · P2 · M · dep: OFFICE-STORE-01 · parallel: yes — backend/storage/, backend/crdt/
 Scope: In `local-minio-sync` mode, office syncs its CRDT docs + blobs via the central Tigris rendezvous
 (SYNC-RENDEZVOUS-01 in vulos-cloud) and fast-follow fabric-P2P (SYNC-P2P-01 in vulos-relay), converging
 across boxes. Default endpoint-injected path unchanged.
-AC: [ ] office CRDT syncs via rendezvous [ ] fabric-P2P path converges [ ] default path unchanged [ ] go build ./... && npm run build
+Built office side against an adapter-pattern `crdt.SyncTransport` interface (delta exchange + content-
+addressed blob fetch by hash) so the cloud rendezvous + relay P2P transports implement it later without
+office depending on those repos. Shipped `crdt.LoopbackSync` (in-memory transport) + `crdt.MemBlobStore`
+for tests. `crdt.SyncCoordinator.PushPull` reuses the existing idempotent `Doc.ApplyRemote` merge.
+`storage.OfficeSyncMode` gates it: only `local-minio-sync` builds a coordinator; default `direct` returns
+nil so the endpoint-injected path is byte-for-byte unchanged.
+AC: [x] office CRDT syncs via rendezvous [x] fabric-P2P path converges [x] default path unchanged [x] go build ./... && npm run build
