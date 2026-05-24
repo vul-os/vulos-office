@@ -36,7 +36,7 @@ Recording has serious privacy and compliance implications:
 
 - Default retention: **30 days** after the meeting ends.
 - Organizer may extend retention up to 1 year or delete immediately.
-- Retention is enforced by a scheduled deletion job (cronjob / Koyeb scheduler).
+- Retention is enforced by a scheduled deletion job (cronjob / scheduled task on the deploy provider).
 - Storage backend: S3-compatible (Tigris or AWS S3), encrypted at rest.
 
 ### Metadata audit log
