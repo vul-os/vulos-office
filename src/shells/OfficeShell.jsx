@@ -8,7 +8,8 @@
  * Wrapped in RequireAuth — redirects to app.vulos.org/login on 401.
  *
  * Deploy: dist-office/  SPA fallback — server must serve index.html for all
- * unmatched paths (fly.io: [[http_service]] with force_https + spa routing).
+ * unmatched paths (Koyeb: koyeb.yaml `routes` block with a catch-all path +
+ * force_https serving index.html for unmatched routes).
  */
 
 import { lazy, Suspense, useState } from 'react'

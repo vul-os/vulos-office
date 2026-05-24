@@ -5,7 +5,8 @@
  * Code-splits per app (docs/sheets/slides/pdf) for optimal load times.
  *
  * Deploy: upload dist-office/ to Tigris at office/<sha>/
- *   fly.io SPA fallback: serve index.html for any unmatched path.
+ *   Koyeb SPA fallback: add a catch-all path in the koyeb.yaml `routes` block
+ *   so index.html is served for any unmatched path.
  *   TODO: wire Tigris static deploy in DEPLOY.md.
  *
  * Usage: vite build --config vite.config.office.js

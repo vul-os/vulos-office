@@ -3,8 +3,8 @@
  *
  * Mounts OfficeShell with BrowserRouter for history-API deep linking.
  * The backend must serve index.html for all unmatched paths (SPA fallback).
- * On fly.io: configure [[http_service]] with force_https = true and the
- * app's 404 handler returning index.html (see DEPLOY.md TODO).
+ * On Koyeb: configure the koyeb.yaml `routes` block with a catch-all path and
+ * force_https, returning index.html for unmatched routes (see DEPLOY.md TODO).
  */
 
 import { StrictMode } from 'react'
