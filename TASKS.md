@@ -342,3 +342,36 @@ for tests. `crdt.SyncCoordinator.PushPull` reuses the existing idempotent `Doc.A
 `storage.OfficeSyncMode` gates it: only `local-minio-sync` builds a coordinator; default `direct` returns
 nil so the endpoint-injected path is byte-for-byte unchanged.
 AC: [x] office CRDT syncs via rendezvous [x] fabric-P2P path converges [x] default path unchanged [x] go build ./... && npm run build
+
+---
+
+## Area: Audit-fix wave A (from #125 verification audit — 2026-05-24)
+
+### [FIX-OFFICE-STORE-WIRE-01] Wire OfficeBackendConfig into office main.go (critical)
+`todo` · P0 · M · dep: none · parallel: yes — main.go, backend/storage/
+Scope: OFFICE-STORE-01 shipped `backend/storage/backendconfig.go` (OfficeBackendConfig, NewOfficeS3Client,
+pure-Go SigV4) + tests, but `main.go:31` STILL calls the legacy `storage.New(cfg)` — meaning the running
+binary never consumes the storage selector. All 5 ACs on OFFICE-STORE-01 are unchecked because of this gap.
+Fix: at startup, read `VULOS_STORAGE_MODE` (+ `VULOS_MINIO_*` env vars per STORE-LOCAL-01 contract); if
+`local-minio-sync` or any `OfficeBackendConfig` env present, instantiate via `NewOfficeS3Client`; otherwise
+keep `storage.New` (default Tigris/PostgreSQL path). Log the resolved endpoint at startup.
+AC: [x] Tigris endpoint config accepted + logged [x] MinIO-local endpoint accepted + logged [x] storage interface uses injected endpoint [x] no endpoint-selection logic in vulos-office source [x] go build ./...   (verify these against OFFICE-STORE-01 ACs in TASKS.md — flip those once this lands)
+
+### [FIX-VITE-FABRIC-IMPORT-01] Resolve vite mixed static+dynamic import on src/lib/fabric.js
+`todo` · P3 · S · dep: none · parallel: yes — src/lib/fabric.js, src/lib/crdt/index.js, src/lib/call/fabricSignaling.js
+Scope: `src/lib/fabric.js` is statically imported by `crdt/index.js` AND dynamically imported by
+`call/fabricSignaling.js`. Vite warns the dynamic split is defeated. Pick one: convert the call-side to a
+static import (fabric is always loaded anyway when Spaces is active), or remove the static crdt import.
+AC: [ ] npm run build emits no mixed-import warning for fabric.js [ ] CRDT + Spaces calling both still work [ ] npm run build && npm test
+
+---
+
+## Area: Video meetings — office Spaces on LiveKit (Wave B — 2026-05-24)
+
+### [MEET-SPACES-01] Rebuild Spaces calling on the LiveKit client SDK (preserve mesh ≤5 fallback)
+`todo` · P2 · L · dep: MEET-CORE-01 (vulos-relay) · parallel: yes — src/apps/spaces/, src/lib/call/
+Scope: Replace the Spaces calling stack to use `livekit-client` (MIT) JS SDK for rooms >5 participants;
+preserve the existing `fabric.js` mesh path for ≤5 (intimate calls, lower-latency, no SFU dependency).
+Route selection at room join based on expected participant count + Pro-tier gate. UI: speaker grid,
+active-speaker emphasis, raise-hand, breakout-room selector. Tokens fetched from vulos-cloud MEET-CP-01.
+AC: [ ] livekit-client wired for >5 [ ] mesh fallback for ≤5 [ ] speaker grid + active-speaker UI [ ] tokens fetched from cloud [ ] npm run build && npm test

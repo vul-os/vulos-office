@@ -325,3 +325,19 @@ Each app surface exposes a canonical deep-link scheme (`vulos-office://docs/{id}
 links can navigate directly to a document, sheet, meeting room, or calendar event. Routing
 table in `src/App.jsx` handles both the web-subdomain URL pattern and the OS deep-link
 scheme. Coordinate with the multi-target build work above.
+
+---
+
+## Audit-fix wave A + Spaces-on-LiveKit (v7.1 — 2026-05-24)
+
+**Audit-fix wave A.** Two office findings from the #125 verification pass: (1) OFFICE-STORE-01 shipped a
+clean `OfficeBackendConfig` library but the running office binary still uses the legacy `storage.New`
+path — all 5 ACs are unchecked. Wire it. (2) `src/lib/fabric.js` is both statically + dynamically imported,
+defeating the vite chunk split. Tasks: `FIX-OFFICE-STORE-WIRE-01`, `FIX-VITE-FABRIC-IMPORT-01`.
+
+**Video meetings — Spaces on LiveKit (Wave B).** Spaces is the Vulos chat + voice + video surface. Current
+calling uses the mesh `fabric.js` + relay TURN fallback — correct for ≤5 participants, fails past ~15.
+Rebuild on the LiveKit client SDK (MIT) for rooms >5 (Pro tier targets Google-Meet-class 500-participant
+rooms), keep mesh as the intimate-call fallback. Tokens fetched from vulos-cloud `MEET-CP-01`; SFU runs
+in the new `vulos-meet` repo (vulos-relay `MEET-CORE-01`). UI additions: speaker grid, active-speaker
+emphasis, raise-hand, breakout selector, recording toggle. Tasks: `MEET-SPACES-01`.
