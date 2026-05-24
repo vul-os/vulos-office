@@ -375,3 +375,30 @@ preserve the existing `fabric.js` mesh path for ≤5 (intimate calls, lower-late
 Route selection at room join based on expected participant count + Pro-tier gate. UI: speaker grid,
 active-speaker emphasis, raise-hand, breakout-room selector. Tokens fetched from vulos-cloud MEET-CP-01.
 AC: [x] livekit-client wired for >5 [x] mesh fallback for ≤5 [x] speaker grid + active-speaker UI [x] tokens fetched from cloud [x] npm run build && npm test
+
+---
+
+## Area: Relay-client adoption + Spaces UI polish (Wave C — 2026-05-24)
+
+### [RELAY-CLIENT-02] Migrate office to consume @vulos/relay-client + delete local copies
+`todo` · P1 · M · dep: RELAY-CLIENT-01 (vulos-relay) · parallel: yes — package.json, src/lib/
+Scope: After RELAY-CLIENT-01 ships the JS package at `vulos-relay/client/`, add
+`"@vulos/relay-client": "file:../vulos-relay/client"` to office's package.json; replace local imports of
+`src/lib/{endpoints,offlineBootstrap,signaling,fabric,presence,call,useLiveCursors,roundTripCheck}` with
+`@vulos/relay-client/*` imports; DELETE the local source files. Verify nothing references the deleted paths
+(`grep -r "src/lib/signaling\|src/lib/fabric\|src/lib/endpoints\|src/lib/offlineBootstrap"` returns empty).
+Run full build+test to confirm byte-equivalent behavior.
+AC: [ ] file: dep added [ ] 8 local files deleted [ ] imports swapped [ ] grep clean [ ] npm run build + npm test green [ ] cross-repo vulos npm run build green
+
+### [MEET-FRONTEND-POLISH-01] Spaces UI polish — captions panel, recording UX, breakouts wired, responsive grid
+`todo` · P2 · M · dep: MEET-SPACES-01 · parallel: yes — src/apps/spaces/components/
+Scope: MEET-SPACES-01 delivered the LiveKit calling surface + speaker grid + raise-hand + breakout stub +
+recording toggle. Bring it to ship-ready:
+(a) **Captions panel** — consume the vulos OS `MEET-TRANSCRIPT-01` SSE stream (`GET /api/meet/transcribe/stream/{room}`),
+    scrolling transcript with speaker attribution; toggleable from meet chrome.
+(b) **Recording indicator** — REC badge + remaining-quota-minutes countdown when active.
+(c) **Raise-hand queue** — visible state change + queue position when multiple hands up; speaker UI dismiss.
+(d) **Breakout rooms** — wire the stub: admin creates breakouts; drift users in/out; return-to-main.
+(e) **Responsive speaker grid** — 1/2/4/9/16/25 tile layouts adapting to viewport.
+(f) **Active-speaker emphasis** — subtle border-glow on the loudest tile.
+AC: [ ] captions panel renders SSE [ ] recording indicator + quota [ ] raise-hand queue [ ] breakout create/drift/return [ ] responsive grid (test viewports) [ ] active-speaker animation [ ] npm run build + npm test green
