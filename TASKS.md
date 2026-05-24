@@ -288,12 +288,12 @@ MinIO-local) in `docs/INSTALL.md`. Add a startup log line confirming the endpoin
 AC: [ ] Tigris endpoint config accepted + logged at startup [ ] MinIO-local endpoint accepted + logged [ ] storage interface uses injected endpoint [ ] no endpoint-selection logic in vulos-office source [ ] `go build ./...`
 
 ### [OFFICE-STORE-02] Co-location documentation: running with OS + mail on one box
-`todo` · P3 · S · dep: none · parallel: yes — docs/INSTALL.md
+`done` · P3 · S · dep: none · parallel: yes — docs/INSTALL.md
 Scope: Document co-located deployment: vulos-office running alongside OS and vulos-mail on a
 single instance, sharing one bucket endpoint. Include the shared config variables, systemd unit
 ordering (vulos-office after vulos-mail), and a note that the meta-bundle installer (`BUNDLE-01`
 in the `vulos` repo) automates this setup. Markdown only; no code changes.
-AC: [ ] `docs/INSTALL.md` covers co-location with OS + mail [ ] shared storage config documented [ ] reference to `vulos` BUNDLE-01 included [ ] `go build ./...` unaffected
+AC: [x] `docs/INSTALL.md` covers co-location with OS + mail [x] shared storage config documented [x] reference to `vulos` BUNDLE-01 included [x] `go build ./...` unaffected
 
 ---
 
