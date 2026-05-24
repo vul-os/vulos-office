@@ -1,0 +1,91 @@
+# .github/workflows/security-scan.yml — security scanning for vulos-office
+#
+# Triggers on:
+#   - push to any branch
+#   - pull request
+#   - weekly schedule (Monday 03:17 UTC)
+#
+# Jobs:
+#   go-security    — gosec (fail on HIGH), govulncheck
+#   trivy          — filesystem scan (fail on CRITICAL/HIGH)
+#   npm-audit      — npm audit --audit-level=high
+
+name: Security scan
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"   # weekly, Monday 03:17 UTC
+
+# Restrict default permissions to read-only.
+permissions:
+  contents: read
+
+jobs:
+
+  # ── Go security (gosec + govulncheck) ──────────────────────────────────────
+  go-security:
+    name: gosec + govulncheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec (fail on HIGH)
+        run: gosec -severity high -confidence medium ./...
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  # ── Trivy filesystem scan ───────────────────────────────────────────────────
+  trivy:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan (CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # ── npm audit ───────────────────────────────────────────────────────────────
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit (fail on high+)
+        run: npm audit --audit-level=high

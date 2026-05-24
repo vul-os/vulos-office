@@ -270,6 +270,33 @@ AC: [ ] deep-link URLs for docs/sheets/slides/spaces/calendar/meet defined [ ] A
 
 ---
 
+## Area: Storage backend, co-location & billing bundling
+
+_Spec: [`ROADMAP.md §Storage backend & co-location`](ROADMAP.md)_  ·  _Prefix: `OFFICE-STORE-*`_
+_Cross-repo: [`vulos`](https://github.com/vul-os/vulos) (BUNDLE-01) · [`vulos-cloud`](https://github.com/vul-os/vulos-cloud) (CP-STORE-01)_
+
+> Implementation tasks for storage-backend config injection and co-location documentation.
+> Office bundled Starter+ is an existing decision (see §Bundling decision in ROADMAP.md).
+
+### [OFFICE-STORE-01] Storage-backend config injection: accept Tigris or MinIO endpoint
+`todo` · P1 · S · dep: OFFICE-06 · parallel: yes — backend/config/config.go, backend/storage/storage.go
+Scope: Ensure `vulos-office` accepts the storage backend endpoint + credentials from its startup
+configuration (env vars or config file) and passes them to the storage interface at initialisation.
+No logic in vulos-office selects between Tigris or MinIO — it receives the endpoint. The storage
+interface is unchanged (`backend/storage/storage.go`). Document the two config shapes (Tigris vs
+MinIO-local) in `docs/INSTALL.md`. Add a startup log line confirming the endpoint in use.
+AC: [ ] Tigris endpoint config accepted + logged at startup [ ] MinIO-local endpoint accepted + logged [ ] storage interface uses injected endpoint [ ] no endpoint-selection logic in vulos-office source [ ] `go build ./...`
+
+### [OFFICE-STORE-02] Co-location documentation: running with OS + mail on one box
+`todo` · P3 · S · dep: none · parallel: yes — docs/INSTALL.md
+Scope: Document co-located deployment: vulos-office running alongside OS and vulos-mail on a
+single instance, sharing one bucket endpoint. Include the shared config variables, systemd unit
+ordering (vulos-office after vulos-mail), and a note that the meta-bundle installer (`BUNDLE-01`
+in the `vulos` repo) automates this setup. Markdown only; no code changes.
+AC: [ ] `docs/INSTALL.md` covers co-location with OS + mail [ ] shared storage config documented [ ] reference to `vulos` BUNDLE-01 included [ ] `go build ./...` unaffected
+
+---
+
 ## Area: BYO Mail integration + bundling
 
 _Spec: [`ROADMAP.md §Bundling decision`](ROADMAP.md)_  ·  _Prefix: `OFFICE-BYO-*`_

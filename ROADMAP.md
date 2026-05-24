@@ -250,6 +250,37 @@ paying for Slack and Zoom.
 
 ---
 
+## Storage backend & co-location (finalized 2026-05-24)
+
+### Storage-backend choice
+
+Vulos Office stores documents, sheets, slides, and spaces messages in the same S3-compatible
+object store as OS sync and mail. The same two-backend choice applies:
+
+- **Tigris (default):** Per-org bucket prefix on Vulos Tigris; managed, durable, replicated.
+- **MinIO local (complete BYO):** Customer's own MinIO instance. Document data never touches
+  Vulos storage. Same Go storage interface; only the endpoint + credentials differ.
+
+The storage backend is set by the Vulos OS or control plane at provisioning time. `vulos-office`
+does not select or provision the backend — it receives the endpoint and credentials as
+configuration (consistent with `vulos-mail`'s model).
+
+### Co-location on a single instance
+
+Vulos Office can run co-located with the OS and vulos-mail on a single box, sharing one bucket
+and one CRDT/peering fabric. The BYO single-box story — "one box = your whole Vulos" — requires
+only one shared bucket endpoint for all three services. The meta-bundle installer (`BUNDLE-01`
+in `vulos`) wires this up; no vulos-office code changes are needed.
+
+### Anchor inbox / identity
+
+Vulos Office uses the same `@vulos.org` identity as mail and OS. There is no separate Office
+identity — the Vulos account is the single identity for all surfaces. Collaboration sessions
+are keyed by Vulos account address; the cloud control plane routes presence and CRDT sync
+using the same identity service as mail.
+
+---
+
 ## Bundling decision
 
 **Office is bundled from Starter and up.** There is no standalone Office tier. The Vulos Mail

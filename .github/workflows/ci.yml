@@ -1,0 +1,69 @@
+# .github/workflows/ci.yml — build, test, and vet vulos-office (Go + frontend)
+#
+# Triggers on:
+#   - push to any branch
+#   - pull request
+#
+# Jobs:
+#   go-ci      — build, test (short), vet the Go backend
+#   frontend   — npm ci, build, test the frontend
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Restrict default permissions to read-only; no job needs write access.
+permissions:
+  contents: read
+
+jobs:
+
+  # ── Go backend ──────────────────────────────────────────────────────────────
+  go-ci:
+    name: Go build / test / vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (short)
+        run: go test -short ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend build / test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
