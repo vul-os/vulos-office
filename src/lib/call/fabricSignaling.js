@@ -9,20 +9,15 @@
 // We treat signaling payloads as JSON envelopes:
 //   { kind: 'sdp'|'ice'|'call-meta', to?: peerId, from: peerId, data: {...} }
 //
-// Until OFFICE-20 lands the project may not export src/lib/fabric.js; we
-// detect that and fall back to a same-tab BroadcastChannel signaling stub
-// (useful for local 2-window dev + smoke). The public surface is identical
-// so CallView/rtc.js do not change when OFFICE-20 lands.
+// FIX-VITE-FABRIC-IMPORT-01: fabric.js is statically imported by
+// src/lib/crdt/index.js, so the prior dynamic import here was defeated by
+// Vite (mixed static+dynamic → warning, no code-splitting benefit). We pull
+// it in statically as a namespace import; if the module doesn't expose
+// joinSession (e.g. older builds) we fall through to the BroadcastChannel
+// stub below, preserving the original adapter contract.
+import * as _fabricMod from '../fabric.js'
 
-let _fabricMod = null
-async function loadFabric() {
-  if (_fabricMod !== null) return _fabricMod
-  try {
-    // OFFICE-20 deliverable
-    _fabricMod = await import('../fabric.js')
-  } catch {
-    _fabricMod = false
-  }
+function loadFabric() {
   return _fabricMod
 }
 

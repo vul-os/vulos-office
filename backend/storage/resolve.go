@@ -1,0 +1,163 @@
+// resolve.go — FIX-OFFICE-STORE-WIRE-01: bridge between the OS-side
+// storage-mode env contract (STORE-LOCAL-01 in `vulos`) and this binary's
+// startup. main.go calls ResolveOfficeBackend at boot to pick up the
+// VULOS_STORAGE_MODE + VULOS_MINIO_* env vars (set by the OS bundle's
+// storagemode.EnvFor) and to materialise either:
+//
+//   - a MinIO-backed OfficeS3Client (when VULOS_STORAGE_MODE=local-minio-sync
+//     OR any VULOS_MINIO_* env var is present), or
+//   - the Tigris default (otherwise — env-filled by OfficeTigrisDefaults).
+//
+// The "file CRUD" Storage interface (local/postgres) is intentionally
+// orthogonal to the object-store client — both paths still build a
+// Storage via the existing `New(cfg)` selector. This resolver only adds the
+// object-store layer the OFFICE-STORE-01 deliverable shipped but never wired.
+//
+// No endpoint-selection logic lives here beyond the env→struct mapping that
+// OFFICE-STORE-01 explicitly requires: "vulos-office accepts the endpoint, it
+// does NOT decide between Tigris or MinIO".
+package storage
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+// Environment-variable names consumed at office startup. These mirror the
+// OS-side storagemode.EnvFor contract (vulos/backend/internal/storagemode).
+const (
+	EnvStorageMode = "VULOS_STORAGE_MODE"
+
+	EnvMinIOEndpoint = "VULOS_MINIO_ENDPOINT"
+	EnvMinIORegion   = "VULOS_MINIO_REGION"
+	EnvMinIOBucket   = "VULOS_MINIO_BUCKET"
+	EnvMinIOCredsRef = "VULOS_MINIO_CREDS_REF"
+
+	// modeLocalMinioSync mirrors storagemode.ModeLocalMinIOSync without
+	// importing the vulos OS module (office is a separate repo, MIT, no
+	// cross-repo Go dependency).
+	modeLocalMinioSync = "local-minio-sync"
+)
+
+// ResolvedBackend is the object-store handle produced at startup. Exactly one
+// of Client / TigrisDefault is set; both can be nil in pathological env
+// configurations (which the caller should treat as "fall back to direct").
+type ResolvedBackend struct {
+	// Kind is the resolved backend family ("tigris" or "minio").
+	Kind OfficeBEKind
+
+	// Endpoint is the resolved endpoint URL (for the startup log line).
+	Endpoint string
+
+	// SyncMode mirrors VULOS_STORAGE_MODE so the caller can wire OFFICE-SYNC-01
+	// without re-reading the env.
+	SyncMode OfficeSyncMode
+
+	// Client is the live S3 client when the resolver successfully built one.
+	// Nil when no MinIO env is present and Tigris credentials are also absent
+	// (in which case the binary still serves file CRUD via the local/postgres
+	// storage interface — the S3 backend is simply not engaged).
+	Client *OfficeS3Client
+}
+
+// ResolveOfficeBackend reads the env vars defined above and returns a
+// ResolvedBackend. It NEVER panics and always returns a non-nil struct; if
+// no S3 endpoint is reachable from env it returns Kind=tigris with the
+// default Tigris URL so the startup log line is still meaningful.
+//
+// Selection rules (per FIX-OFFICE-STORE-WIRE-01 scope):
+//   - if VULOS_STORAGE_MODE=local-minio-sync OR any VULOS_MINIO_* env var is
+//     non-empty → build a MinIO-kind OfficeS3Client.
+//   - otherwise → build a Tigris-kind OfficeS3Client from OfficeTigrisDefaults
+//     (no client returned when Tigris creds are absent — env-default endpoint
+//     is still reported for logging).
+func ResolveOfficeBackend() (*ResolvedBackend, error) {
+	mode := strings.TrimSpace(os.Getenv(EnvStorageMode))
+
+	minioEndpoint := strings.TrimSpace(os.Getenv(EnvMinIOEndpoint))
+	minioRegion := strings.TrimSpace(os.Getenv(EnvMinIORegion))
+	minioBucket := strings.TrimSpace(os.Getenv(EnvMinIOBucket))
+	minioCreds := strings.TrimSpace(os.Getenv(EnvMinIOCredsRef))
+
+	anyMinIO := minioEndpoint != "" || minioRegion != "" || minioBucket != "" || minioCreds != ""
+
+	syncMode := OfficeSyncDirect
+	if mode == modeLocalMinioSync {
+		syncMode = OfficeSyncLocalMinio
+	}
+
+	if mode == modeLocalMinioSync || anyMinIO {
+		ak, sk, err := readMinIOCreds(minioCreds)
+		if err != nil {
+			return nil, fmt.Errorf("storage: resolve minio creds: %w", err)
+		}
+		cfg := OfficeBackendConfig{
+			Kind:            OfficeBEKindMinIO,
+			Endpoint:        minioEndpoint,
+			Region:          minioRegion,
+			Bucket:          minioBucket,
+			AccessKeyID:     ak,
+			SecretAccessKey: sk,
+		}
+		client, err := NewOfficeS3Client(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("storage: new minio client: %w", err)
+		}
+		return &ResolvedBackend{
+			Kind:     OfficeBEKindMinIO,
+			Endpoint: cfg.Endpoint,
+			SyncMode: syncMode,
+			Client:   client,
+		}, nil
+	}
+
+	// Default: Tigris (managed). Build a client only when creds are present.
+	tcfg := OfficeTigrisDefaults()
+	rb := &ResolvedBackend{
+		Kind:     OfficeBEKindTigris,
+		Endpoint: tcfg.Endpoint,
+		SyncMode: syncMode,
+	}
+	if tcfg.AccessKeyID != "" && tcfg.SecretAccessKey != "" {
+		client, err := NewOfficeS3Client(tcfg)
+		if err != nil {
+			return nil, fmt.Errorf("storage: new tigris client: %w", err)
+		}
+		rb.Client = client
+	}
+	return rb, nil
+}
+
+// readMinIOCreds returns (accessKey, secretKey, error) for a MinIO endpoint.
+// credsRef may be:
+//   - empty       → fall back to AWS-style env vars (AWS_ACCESS_KEY_ID /
+//     AWS_SECRET_ACCESS_KEY), then to MINIO_ROOT_USER /
+//     MINIO_ROOT_PASSWORD (matching install-vulos.sh).
+//   - a file path → read "ACCESS_KEY\nSECRET_KEY\n" (the format the OS
+//     installer writes to $DATA_DIR/minio/.minio_secret).
+//
+// Empty creds are allowed (some MinIO deployments rely on IAM); the S3 client
+// will fail at request time rather than at boot.
+func readMinIOCreds(credsRef string) (string, string, error) {
+	if credsRef != "" {
+		// File path form — read the two lines.
+		b, err := os.ReadFile(credsRef)
+		if err != nil {
+			return "", "", fmt.Errorf("read %q: %w", credsRef, err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		var ak, sk string
+		if len(lines) > 0 {
+			ak = strings.TrimSpace(lines[0])
+		}
+		if len(lines) > 1 {
+			sk = strings.TrimSpace(lines[1])
+		}
+		return ak, sk, nil
+	}
+	if ak, sk := os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"); ak != "" || sk != "" {
+		return ak, sk, nil
+	}
+	return os.Getenv("MINIO_ROOT_USER"), os.Getenv("MINIO_ROOT_PASSWORD"), nil
+}

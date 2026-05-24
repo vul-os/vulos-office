@@ -285,7 +285,7 @@ configuration (env vars or config file) and passes them to the storage interface
 No logic in vulos-office selects between Tigris or MinIO — it receives the endpoint. The storage
 interface is unchanged (`backend/storage/storage.go`). Document the two config shapes (Tigris vs
 MinIO-local) in `docs/INSTALL.md`. Add a startup log line confirming the endpoint in use.
-AC: [ ] Tigris endpoint config accepted + logged at startup [ ] MinIO-local endpoint accepted + logged [ ] storage interface uses injected endpoint [ ] no endpoint-selection logic in vulos-office source [ ] `go build ./...`
+AC: [x] Tigris endpoint config accepted + logged at startup [x] MinIO-local endpoint accepted + logged [x] storage interface uses injected endpoint [x] no endpoint-selection logic in vulos-office source [x] `go build ./...`
 
 ### [OFFICE-STORE-02] Co-location documentation: running with OS + mail on one box
 `done` · P3 · S · dep: none · parallel: yes — docs/INSTALL.md
@@ -348,7 +348,7 @@ AC: [x] office CRDT syncs via rendezvous [x] fabric-P2P path converges [x] defau
 ## Area: Audit-fix wave A (from #125 verification audit — 2026-05-24)
 
 ### [FIX-OFFICE-STORE-WIRE-01] Wire OfficeBackendConfig into office main.go (critical)
-`todo` · P0 · M · dep: none · parallel: yes — main.go, backend/storage/
+`done` · P0 · M · dep: none · parallel: yes — main.go, backend/storage/
 Scope: OFFICE-STORE-01 shipped `backend/storage/backendconfig.go` (OfficeBackendConfig, NewOfficeS3Client,
 pure-Go SigV4) + tests, but `main.go:31` STILL calls the legacy `storage.New(cfg)` — meaning the running
 binary never consumes the storage selector. All 5 ACs on OFFICE-STORE-01 are unchecked because of this gap.
@@ -358,11 +358,11 @@ keep `storage.New` (default Tigris/PostgreSQL path). Log the resolved endpoint a
 AC: [x] Tigris endpoint config accepted + logged [x] MinIO-local endpoint accepted + logged [x] storage interface uses injected endpoint [x] no endpoint-selection logic in vulos-office source [x] go build ./...   (verify these against OFFICE-STORE-01 ACs in TASKS.md — flip those once this lands)
 
 ### [FIX-VITE-FABRIC-IMPORT-01] Resolve vite mixed static+dynamic import on src/lib/fabric.js
-`todo` · P3 · S · dep: none · parallel: yes — src/lib/fabric.js, src/lib/crdt/index.js, src/lib/call/fabricSignaling.js
+`done` · P3 · S · dep: none · parallel: yes — src/lib/fabric.js, src/lib/crdt/index.js, src/lib/call/fabricSignaling.js
 Scope: `src/lib/fabric.js` is statically imported by `crdt/index.js` AND dynamically imported by
 `call/fabricSignaling.js`. Vite warns the dynamic split is defeated. Pick one: convert the call-side to a
 static import (fabric is always loaded anyway when Spaces is active), or remove the static crdt import.
-AC: [ ] npm run build emits no mixed-import warning for fabric.js [ ] CRDT + Spaces calling both still work [ ] npm run build && npm test
+AC: [x] npm run build emits no mixed-import warning for fabric.js [x] CRDT + Spaces calling both still work [x] npm run build && npm test
 
 ---
 
