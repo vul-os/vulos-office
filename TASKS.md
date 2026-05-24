@@ -279,7 +279,7 @@ _Cross-repo: [`vulos`](https://github.com/vul-os/vulos) (BUNDLE-01) · [`vulos-c
 > Office bundled Starter+ is an existing decision (see §Bundling decision in ROADMAP.md).
 
 ### [OFFICE-STORE-01] Storage-backend config injection: accept Tigris or MinIO endpoint
-`todo` · P1 · S · dep: OFFICE-06 · parallel: yes — backend/config/config.go, backend/storage/storage.go
+`done` · P1 · S · dep: OFFICE-06 · parallel: yes — backend/storage/backendconfig.go (OfficeBackendConfig + NewOfficeS3Client; pure-Go SigV4; tigris|minio, env-fill for Tigris, explicit for MinIO)
 Scope: Ensure `vulos-office` accepts the storage backend endpoint + credentials from its startup
 configuration (env vars or config file) and passes them to the storage interface at initialisation.
 No logic in vulos-office selects between Tigris or MinIO — it receives the endpoint. The storage
