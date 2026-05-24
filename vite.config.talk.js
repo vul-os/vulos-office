@@ -4,8 +4,8 @@
  * Builds to dist-talk/ from src/entries/talk.jsx.
  *
  * Deploy: upload dist-talk/ to Tigris at talk/<sha>/
- *   Koyeb SPA fallback: add a catch-all path in the koyeb.yaml `routes` block
- *   so index.html is served for any unmatched path.
+ *   Fly SPA fallback: configure the fly.toml `[[http_service]]` block (or the
+ *   static file server fronting it) to serve index.html for any unmatched path.
  *   TODO: wire Tigris static deploy in DEPLOY.md.
  *
  * Usage: vite build --config vite.config.talk.js
