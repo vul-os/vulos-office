@@ -41,11 +41,18 @@ import (
 type SealHandler struct {
 	store      storage.Storage
 	uploadsDir string
+	authz      *FileAuthz
 }
 
 // NewSealHandler creates a SealHandler.
 func NewSealHandler(store storage.Storage, uploadsDir string) *SealHandler {
-	return &SealHandler{store: store, uploadsDir: uploadsDir}
+	return &SealHandler{store: store, uploadsDir: uploadsDir, authz: SharedFileAuthz()}
+}
+
+// NewSealHandlerWithAuthz builds a SealHandler over a caller-supplied authorizer
+// (tests use an in-memory NullStore).
+func NewSealHandlerWithAuthz(store storage.Storage, uploadsDir string, authz *FileAuthz) *SealHandler {
+	return &SealHandler{store: store, uploadsDir: uploadsDir, authz: authz}
 }
 
 // ------------------------------------------------------------
@@ -100,6 +107,13 @@ func (h *SealHandler) Download(c *gin.Context) {
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
+	// Authorization: only the owner of the source document / envelope (or an
+	// admin) may download the sealed PDF. Denied → 404 (no existence leak).
+	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
 		return
 	}
@@ -166,6 +180,12 @@ func (h *SealHandler) Manifest(c *gin.Context) {
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
+	// Authorization: same ACL gate as Download (no existence leak on denial).
+	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
 		return
 	}

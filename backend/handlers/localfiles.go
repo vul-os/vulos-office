@@ -100,26 +100,34 @@ func (h *LocalFilesHandler) Serve(c *gin.Context) {
 		return
 	}
 
-	// Security: path must be under one of the allowed scan dirs
-	allowed := false
+	// Security: the requested path must be CONTAINED within one of the allowed
+	// scan dirs. A naive strings.HasPrefix check is bypassable — e.g.
+	// "/Users/pc/Documents-evil" has the prefix "/Users/pc/Documents" yet
+	// escapes the directory. Use filepath.Rel and reject any result that is
+	// absolute or climbs out with "..", which gives proper containment AND
+	// handles traversal (so the "../" check no longer has to run after Clean).
+	cleanPath := filepath.Clean(path)
+	contained := false
 	for _, dir := range h.scanDirs {
-		if strings.HasPrefix(filepath.Clean(path), filepath.Clean(dir)) {
-			allowed = true
-			break
+		rel, err := filepath.Rel(filepath.Clean(dir), cleanPath)
+		if err != nil {
+			continue
 		}
+		// rel == "." (the dir itself) or a descendant is allowed; anything that
+		// starts with ".." (or is the literal "..") escapes the dir, and an
+		// absolute rel means different volumes — both rejected.
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+			continue
+		}
+		contained = true
+		break
 	}
-	if !allowed {
+	if !contained {
 		c.JSON(http.StatusForbidden, gin.H{"error": "path not allowed"})
 		return
 	}
 
-	// Prevent path traversal
-	if strings.Contains(path, "..") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
-		return
-	}
-
-	info, err := os.Stat(path)
+	info, err := os.Stat(cleanPath)
 	if err != nil || info.IsDir() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return

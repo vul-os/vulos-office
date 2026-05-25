@@ -30,10 +30,17 @@ import (
 // OrchestrationHandler drives the multi-signer state machine.
 type OrchestrationHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewOrchestrationHandler(store storage.Storage) *OrchestrationHandler {
-	return &OrchestrationHandler{store: store}
+	return &OrchestrationHandler{store: store, authz: SharedFileAuthz()}
+}
+
+// NewOrchestrationHandlerWithAuthz builds the handler over a caller-supplied
+// authorizer (tests use an in-memory NullStore).
+func NewOrchestrationHandlerWithAuthz(store storage.Storage, authz *FileAuthz) *OrchestrationHandler {
+	return &OrchestrationHandler{store: store, authz: authz}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -116,6 +123,12 @@ func (h *OrchestrationHandler) Remind(c *gin.Context) {
 		return
 	}
 
+	// Authorization: only the document/envelope owner (or admin) may remind.
+	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
 	if env.Status == models.EnvelopeStatusCompleted ||
 		env.Status == models.EnvelopeStatusDeclined ||
 		env.Status == models.EnvelopeStatusVoided {
@@ -165,6 +178,12 @@ func (h *OrchestrationHandler) Cancel(c *gin.Context) {
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
+	// Authorization: only the document/envelope owner (or admin) may cancel.
+	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
 		return
 	}

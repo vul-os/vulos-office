@@ -5,6 +5,7 @@
  */
 import { useState, useRef, useCallback } from 'react'
 import { Search, X, ChevronDown, ChevronUp } from 'lucide-react'
+import DOMPurify from 'dompurify'
 
 /**
  * parseSearchQuery — parse a raw query string into a structured filter.
@@ -59,17 +60,52 @@ export function matchesFilter(msg, filter) {
 }
 
 /**
+ * escapeHtml — HTML-escape a raw string so it can never carry markup when
+ * injected via dangerouslySetInnerHTML. This neutralises a hostile message body
+ * BEFORE the highlight pass runs over it (the body is attacker-controlled).
+ */
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
  * highlightTerms — wrap matched terms in a <mark> span.
- * Returns the string with HTML <mark> tags inserted.
+ *
+ * SECURITY: the message body is attacker-controlled and is rendered via
+ * dangerouslySetInnerHTML in the results list. The body is therefore
+ * HTML-ESCAPED first (so any <script>/<img onerror>/javascript: payload becomes
+ * inert text), and only AFTER escaping are the search terms wrapped in a
+ * <mark>. The terms themselves are regex-escaped, and the final HTML is run
+ * through DOMPurify (same module RichMessage.jsx uses) allowing only the
+ * highlight <mark> — so no script/onerror/js-url can survive. Returns a string
+ * containing only the inert escaped body plus <mark> wrappers.
  */
 export function highlightTerms(text, terms) {
-  if (!terms || terms.length === 0) return text
-  let result = text
-  for (const term of terms) {
-    const re = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    result = result.replace(re, '<mark class="search-highlight">$1</mark>')
+  // 1. Escape the body so any embedded HTML is rendered as inert text.
+  let result = escapeHtml(text)
+  // 2. Wrap matched terms in <mark> over the already-escaped text.
+  if (terms && terms.length > 0) {
+    for (const term of terms) {
+      if (!term) continue
+      // Escape the term for both regex AND HTML so it matches against the
+      // escaped body and cannot itself inject markup.
+      const escapedTerm = escapeHtml(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (!escapedTerm) continue
+      const re = new RegExp(`(${escapedTerm})`, 'gi')
+      result = result.replace(re, '<mark class="search-highlight">$1</mark>')
+    }
   }
-  return result
+  // 3. Defence-in-depth: sanitize the final HTML allowing only the <mark>
+  //    highlight element (and its class) — mirrors RichMessage's DOMPurify path.
+  return DOMPurify.sanitize(result, {
+    ALLOWED_TAGS: ['mark'],
+    ALLOWED_ATTR: ['class'],
+  })
 }
 
 // ---- SearchBar component -----------------------------------------------------

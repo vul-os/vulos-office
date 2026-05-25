@@ -414,22 +414,28 @@ func (h *SpacesHandler) MergeOps(c *gin.Context) {
 	}
 	requester := requesterID(c)
 	// Enforce channel membership for every channel touched by the batch before
-	// applying anything. Public channels are open; private/DM require membership.
+	// applying anything. An op targeting a NON-EXISTENT channel is rejected: the
+	// CRDT merge would otherwise auto-create a skeleton channel with an empty
+	// (public-treated) type, letting a stranger seed a world-visible channel and
+	// implicitly become a member. Channel creation must go through CreateChannel
+	// (which scopes ownership/membership), never the op-merge path.
 	seen := make(map[string]bool)
 	for _, op := range ops {
 		if op == nil || seen[op.ChannelID] {
 			continue
 		}
 		seen[op.ChannelID] = true
-		// Only enforce for channels that already exist as private/DM; unknown
-		// channels are created as public skeletons by the CRDT merge and remain
-		// subject to author validation below.
-		if ch, ok := h.store.GetChannel(op.ChannelID); ok {
-			if ch.Type == models.ChannelTypePrivate || ch.Type == models.ChannelTypeDM {
-				if !h.store.IsMember(op.ChannelID, requester) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "not a member of channel " + op.ChannelID})
-					return
-				}
+		ch, ok := h.store.GetChannel(op.ChannelID)
+		if !ok {
+			// Unknown channel — refuse the whole batch (no auto-seeding).
+			c.JSON(http.StatusForbidden, gin.H{"error": "unknown channel " + op.ChannelID})
+			return
+		}
+		// Private/DM channels additionally require the caller to be a member.
+		if ch.Type == models.ChannelTypePrivate || ch.Type == models.ChannelTypeDM {
+			if !h.store.IsMember(op.ChannelID, requester) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "not a member of channel " + op.ChannelID})
+				return
 			}
 		}
 	}

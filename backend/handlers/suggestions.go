@@ -57,11 +57,12 @@ func (h *SuggestionHandler) Create(c *gin.Context) {
 	}
 
 	sg := &models.Suggestion{
-		ID:       uuid.New().String(),
-		FileID:   fileID,
-		Kind:     req.Kind,
-		State:    models.SuggestionPending,
-		AuthorID: req.AuthorID,
+		ID:     uuid.New().String(),
+		FileID: fileID,
+		Kind:   req.Kind,
+		State:  models.SuggestionPending,
+		// Verified identity — not the forgeable client AuthorID.
+		AuthorID: requesterID(c),
 		From:     req.From,
 		To:       req.To,
 		Text:     req.Text,
@@ -102,7 +103,9 @@ func (h *SuggestionHandler) Update(c *gin.Context) {
 	}
 
 	sg.State = req.State
-	sg.ReviewerID = req.ReviewerID
+	// Bind the reviewer to the VERIFIED identity, never the client-supplied
+	// ReviewerID (forgeable).
+	sg.ReviewerID = requesterID(c)
 	sg.SeqClock = hlcNow()
 
 	if err := h.store.UpdateSuggestion(sg); err != nil {

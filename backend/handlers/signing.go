@@ -27,10 +27,17 @@ const TokenTTL = 7 * 24 * time.Hour
 
 type SigningHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewSigningHandler(store storage.Storage) *SigningHandler {
-	return &SigningHandler{store: store}
+	return &SigningHandler{store: store, authz: SharedFileAuthz()}
+}
+
+// NewSigningHandlerWithAuthz builds a SigningHandler over a caller-supplied
+// authorizer (tests use an in-memory NullStore).
+func NewSigningHandlerWithAuthz(store storage.Storage, authz *FileAuthz) *SigningHandler {
+	return &SigningHandler{store: store, authz: authz}
 }
 
 // Send issues one scoped token per signer for the given envelope.
@@ -43,6 +50,13 @@ func (h *SigningHandler) Send(c *gin.Context) {
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
+	// Authorization: only the document/envelope owner (or an admin) may issue
+	// signing tokens. Denied → 404 (no existence leak).
+	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
 		return
 	}

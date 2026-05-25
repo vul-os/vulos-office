@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -229,14 +231,149 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, models.LoginResponse{Message: "logged in"})
 }
 
+// EnvRegistrationToken is the env var holding the registration/invite token. It
+// gates registration once the instance is bootstrapped (≥1 user) so a stranger
+// cannot register new accounts on a running multi-user instance. The token is
+// supplied by the client via the X-Registration-Token header.
+const EnvRegistrationToken = "VULOS_OFFICE_REGISTRATION_TOKEN"
+
+// reservedPrivilegedID reports whether accountID looks like a privileged /
+// system identity that must NOT be self-registered by an unauthenticated or
+// non-admin caller (e.g. admin@, root@, the bare "self"/"system" handles, or any
+// "admin"/"root" local-part). This blocks the "register admin@vulos.org while
+// HasUsers==false" privilege grab — only the holder of the registration token
+// may claim such an id.
+func reservedPrivilegedID(accountID string) bool {
+	id := strings.ToLower(strings.TrimSpace(accountID))
+	if id == "" {
+		return false
+	}
+	if id == "self" || id == "system" || id == "admin" || id == "root" {
+		return true
+	}
+	local := id
+	if at := strings.Index(id, "@"); at >= 0 {
+		local = id[:at]
+	}
+	switch local {
+	case "admin", "administrator", "root", "superuser", "system", "postmaster", "security":
+		return true
+	}
+	return false
+}
+
+// passwordPolicyError returns a non-empty reason when pw fails the minimal
+// password policy: ≥10 chars and at least two distinct character classes
+// (lower / upper / digit / symbol). Rejects trivially weak passwords like
+// "password" or "12345678" without being onerous for a self-host operator.
+func passwordPolicyError(pw string) string {
+	if len(pw) < 10 {
+		return "password must be at least 10 characters"
+	}
+	var hasLower, hasUpper, hasDigit, hasSymbol bool
+	for _, r := range pw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		default:
+			hasSymbol = true
+		}
+	}
+	classes := 0
+	for _, ok := range []bool{hasLower, hasUpper, hasDigit, hasSymbol} {
+		if ok {
+			classes++
+		}
+	}
+	if classes < 2 {
+		return "password must mix at least two of: lowercase, uppercase, digits, symbols"
+	}
+	return ""
+}
+
+// registrationTokenOK reports whether the request carries the configured
+// registration/invite token. Returns (configured, valid):
+//   - configured=false → no token is set in the environment (registration on a
+//     bootstrapped instance is then closed entirely; only first-user bootstrap
+//     is allowed).
+//   - valid=true → the supplied X-Registration-Token matched (constant-time).
+func registrationTokenOK(c *gin.Context) (configured, valid bool) {
+	want := strings.TrimSpace(os.Getenv(EnvRegistrationToken))
+	if want == "" {
+		return false, false
+	}
+	got := strings.TrimSpace(c.GetHeader("X-Registration-Token"))
+	if got == "" {
+		return true, false
+	}
+	return true, subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+// requestIsAdmin validates an optional session JWT on the request and reports
+// whether it carries the "vulos:admin" audience. Used by Register (which is
+// mounted unauthenticated) so an admin can provision accounts even though the
+// route did not pass through middleware.Auth. Mirrors the verification in
+// middleware.Auth (HMAC pinned to reject alg-confusion).
+func (h *AuthHandler) requestIsAdmin(c *gin.Context) bool {
+	token := c.GetHeader("Authorization")
+	if strings.HasPrefix(token, "Bearer ") {
+		token = strings.TrimPrefix(token, "Bearer ")
+	} else if cookie, err := c.Cookie("session"); err == nil {
+		token = cookie
+	} else {
+		return false
+	}
+	if token == "" {
+		return false
+	}
+	secret, err := middleware.JWTSecret()
+	if err != nil {
+		return false
+	}
+	claims := &jwt.RegisteredClaims{}
+	parsed, perr := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrTokenSignatureInvalid
+		}
+		return secret, nil
+	})
+	if perr != nil || !parsed.Valid {
+		return false
+	}
+	for _, aud := range claims.Audience {
+		if aud == "vulos:admin" {
+			return true
+		}
+	}
+	return false
+}
+
 // Register creates a per-user credential (account id + bcrypt password hash).
 //
 //	POST /api/auth/register  { "account_id": "alice@vulos.org", "password": "..." }
+//	  (optional header) X-Registration-Token: <invite/admin token>
 //
-// After at least one user is registered, Login enforces per-user authentication
-// and binds the JWT subject to the verified account (closing the self-asserted
-// identity hole). Registration is unauthenticated so the first user can bootstrap;
-// hardening (admin-gated registration / invite tokens) is FLAGGED as follow-up.
+// Gating (closes the unauthenticated-registration + first-user TOCTOU +
+// arbitrary-privileged-id holes):
+//
+//   - FIRST USER (atomic bootstrap): when the credential store is empty the very
+//     first registration is allowed without a token via the store's atomic
+//     RegisterFirst (a transaction-guarded count-then-insert), so two concurrent
+//     callers cannot both win the bootstrap. A reserved/privileged id
+//     (admin@, root@, …) still requires the registration token even as the first
+//     user, so the first account is a normal user unless the operator opts in.
+//
+//   - BOOTSTRAPPED INSTANCE (≥1 user): registration REQUIRES the configured
+//     registration/invite token (X-Registration-Token, validated constant-time).
+//     If no token is configured, registration is CLOSED on a running instance —
+//     a stranger can no longer self-register. An admin JWT also satisfies the
+//     gate (an admin may provision accounts).
+//
+//   - Password policy is enforced for every registration.
 func (h *AuthHandler) Register(c *gin.Context) {
 	if !h.cfg.Auth.Enabled {
 		c.JSON(http.StatusOK, models.LoginResponse{Message: "auth not required"})
@@ -251,14 +388,65 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid request"})
 		return
 	}
-	if req.AccountID == "" {
+	if strings.TrimSpace(req.AccountID) == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "account_id required"})
 		return
 	}
-	if len(req.Password) < 8 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "password must be at least 8 characters"})
+	if reason := passwordPolicyError(req.Password); reason != "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: reason})
 		return
 	}
+
+	hasUsers := false
+	if hu, err := h.creds.HasUsers(); err == nil {
+		hasUsers = hu
+	}
+
+	// Token / admin authorization signal. Register is mounted on the
+	// UNauthenticated route group (so the first user can bootstrap without a
+	// token), therefore the admin scope is not present in context — detect it by
+	// validating an optional admin JWT on the request directly.
+	tokenConfigured, tokenValid := registrationTokenOK(c)
+	isAdmin := c.GetBool(middleware.CtxIsAdmin) || h.requestIsAdmin(c)
+	authorized := tokenValid || isAdmin
+
+	// A privileged/system id may only be claimed by an authorized caller (token
+	// or admin) — never by anonymous self-registration, even as the first user.
+	if reservedPrivilegedID(req.AccountID) && !authorized {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "this account id is reserved"})
+		return
+	}
+
+	if !hasUsers && !authorized {
+		// Unauthenticated FIRST-user bootstrap — atomic so the TOCTOU race is
+		// closed. If another caller bootstrapped in the meantime, RegisterFirst
+		// returns ErrNotFirstUser and we fall through to the gated requirement.
+		switch err := h.creds.RegisterFirst(req.AccountID, req.Password); err {
+		case nil:
+			c.JSON(http.StatusCreated, models.LoginResponse{Message: "registered"})
+			return
+		case userauth.ErrUserExists:
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "account already registered"})
+			return
+		case userauth.ErrNotFirstUser:
+			// Lost the bootstrap race — now bootstrapped; require a token below.
+		default:
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to register"})
+			return
+		}
+	}
+
+	// Bootstrapped instance: require an authorized caller.
+	if !authorized {
+		if !tokenConfigured {
+			// No registration token configured → registration is closed.
+			c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "registration is closed; an invite token is required"})
+			return
+		}
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "valid registration token required"})
+		return
+	}
+
 	switch err := h.creds.Register(req.AccountID, req.Password); err {
 	case nil:
 		c.JSON(http.StatusCreated, models.LoginResponse{Message: "registered"})

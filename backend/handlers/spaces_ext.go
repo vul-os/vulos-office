@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"vulos-office/backend/middleware"
 	"vulos-office/backend/models"
 	"vulos-office/backend/spaces"
 
@@ -387,9 +388,32 @@ func (h *SpacesHandlerExt) SetStatus(c *gin.Context) {
 }
 
 // GetStatus GET /api/spaces/users/:userId/status
+//
+// Scoped to prevent presence enumeration of arbitrary accounts: a caller may
+// read their OWN status, or the status of a user with whom they share at least
+// one channel (an admin may read anyone). Otherwise → 404 (no existence leak).
 func (h *SpacesHandlerExt) GetStatus(c *gin.Context) {
 	userID := c.Param("userId")
+	requester := requesterID(c)
+	if !h.canSeeUserStatus(requester, userID) && !c.GetBool(middleware.CtxIsAdmin) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "status not found"})
+		return
+	}
 	c.JSON(http.StatusOK, h.ext.status.Get(userID))
+}
+
+// canSeeUserStatus reports whether requester is allowed to read target's
+// presence: true for self, or when both share a channel (any type).
+func (h *SpacesHandlerExt) canSeeUserStatus(requester, target string) bool {
+	if requester != "" && requester == target {
+		return true
+	}
+	for _, ch := range h.store.ListChannels() {
+		if h.store.IsMember(ch.ID, requester) && h.store.IsMember(ch.ID, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- Search ------------------------------------------------------------------

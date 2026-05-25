@@ -100,3 +100,20 @@ func (a *FileAuthz) recordOwner(c *gin.Context, fileID string) {
 	}
 	_ = a.acl.SetOwner(fileID, requesterID(c))
 }
+
+// canAccessEnvelopeACL reports whether the caller may touch an envelope. The
+// e-signature subsystem ties an envelope to the per-file ACL: access is granted
+// when the caller can access the envelope's SourceFileID (the document being
+// signed) OR the envelope id itself (recorded as ACL-owned by the creator so
+// envelopes with an empty/unowned SourceFileID are still private). Admins pass
+// via canAccess. This is the single authorization predicate shared by the
+// envelope CRUD, send, seal, and orchestration handlers.
+func (a *FileAuthz) canAccessEnvelopeACL(c *gin.Context, sourceFileID, envelopeID string) bool {
+	if a == nil || a.acl == nil {
+		return true // no authorizer wired (degraded) — fail-open to avoid lockout
+	}
+	if sourceFileID != "" && a.canAccess(c, sourceFileID) {
+		return true
+	}
+	return a.canAccess(c, envelopeID)
+}

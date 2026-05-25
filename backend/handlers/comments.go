@@ -80,10 +80,13 @@ func (h *CommentHandler) Create(c *gin.Context) {
 	}
 
 	cm := &models.Comment{
-		ID:       uuid.New().String(),
-		FileID:   fileID,
-		Anchor:   req.Anchor,
-		AuthorID: req.AuthorID,
+		ID:     uuid.New().String(),
+		FileID: fileID,
+		Anchor: req.Anchor,
+		// Bind the author to the VERIFIED identity, never the client-supplied
+		// AuthorID (which is forgeable). A user cannot post a comment attributed
+		// to someone else.
+		AuthorID: requesterID(c),
 		Body:     req.Body,
 		State:    models.CommentOpen,
 		SeqClock: hlcNow(),
@@ -170,10 +173,11 @@ func (h *CommentHandler) CreateReply(c *gin.Context) {
 		ID:        uuid.New().String(),
 		CommentID: commentID,
 		FileID:    fileID,
-		AuthorID:  req.AuthorID,
-		Body:      req.Body,
-		SeqClock:  hlcNow(),
-		Deleted:   false,
+		// Verified identity — not the forgeable client AuthorID.
+		AuthorID: requesterID(c),
+		Body:     req.Body,
+		SeqClock: hlcNow(),
+		Deleted:  false,
 	}
 	if err := h.store.CreateReply(r); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

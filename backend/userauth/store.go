@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -45,8 +46,20 @@ type Store interface {
 	// HasUsers reports whether any credentials are registered. Used to decide
 	// whether to enforce per-user auth or fall back to the shared password.
 	HasUsers() (bool, error)
+	// RegisterFirst atomically registers accountID ONLY IF no users exist yet.
+	// It closes the first-user bootstrap TOCTOU race: the existence check and
+	// the insert happen under one transaction, so two concurrent callers cannot
+	// both believe they are the first user. Returns ErrNotFirstUser when at
+	// least one account already exists (the caller must then use the gated
+	// Register path), or ErrUserExists if the id is somehow already taken.
+	RegisterFirst(accountID, password string) error
 	Close() error
 }
+
+// ErrNotFirstUser is returned by RegisterFirst when the store is already
+// bootstrapped (≥1 user exists), so the unauthenticated first-user path is
+// closed and registration must go through the gated path.
+var ErrNotFirstUser = errors.New("userauth: store already bootstrapped")
 
 // normalize lower-cases and trims the account id so logins are case-insensitive
 // on the email/handle (matching how identity is treated elsewhere).
@@ -150,11 +163,46 @@ func (s *SQLiteStore) HasUsers() (bool, error) {
 	return n > 0, nil
 }
 
+// RegisterFirst atomically inserts the first user inside a transaction, guarded
+// by a count check so concurrent callers cannot both win the bootstrap race.
+// (db.SetMaxOpenConns(1) already serialises writers; the transaction makes the
+// check-then-insert atomic regardless.)
+func (s *SQLiteStore) RegisterFirst(accountID, password string) error {
+	id := normalize(accountID)
+	if id == "" || password == "" {
+		return ErrEmptyInput
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("userauth: hash: %w", err)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck — no-op after a successful Commit
+
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrNotFirstUser
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO users (account_id, password_hash, created_at) VALUES (?, ?, ?)`,
+		id, string(hash), time.Now().UnixNano()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ---------------------------------------------------------------------------
 // NullStore — in-memory backend for tests / degraded mode
 // ---------------------------------------------------------------------------
 
 type NullStore struct {
+	mu    sync.Mutex
 	users map[string]string // accountID → bcrypt hash
 }
 
@@ -167,6 +215,8 @@ func (n *NullStore) Register(accountID, password string) error {
 	if id == "" || password == "" {
 		return ErrEmptyInput
 	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if _, ok := n.users[id]; ok {
 		return ErrUserExists
 	}
@@ -178,9 +228,31 @@ func (n *NullStore) Register(accountID, password string) error {
 	return nil
 }
 
+// RegisterFirst atomically registers accountID only when no users exist (the
+// in-memory analogue of the SQLite transaction-guarded bootstrap).
+func (n *NullStore) RegisterFirst(accountID, password string) error {
+	id := normalize(accountID)
+	if id == "" || password == "" {
+		return ErrEmptyInput
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.users) > 0 {
+		return ErrNotFirstUser
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	n.users[id] = string(hash)
+	return nil
+}
+
 func (n *NullStore) Verify(accountID, password string) (string, error) {
 	id := normalize(accountID)
+	n.mu.Lock()
 	hash, ok := n.users[id]
+	n.mu.Unlock()
 	if !ok {
 		return "", ErrInvalidCredential
 	}
@@ -190,6 +262,10 @@ func (n *NullStore) Verify(accountID, password string) (string, error) {
 	return id, nil
 }
 
-func (n *NullStore) HasUsers() (bool, error) { return len(n.users) > 0, nil }
+func (n *NullStore) HasUsers() (bool, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.users) > 0, nil
+}
 
 func (n *NullStore) Close() error { return nil }

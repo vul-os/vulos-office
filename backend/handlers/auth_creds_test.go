@@ -151,28 +151,38 @@ func TestSharedPasswordFallbackWhenNoUsers(t *testing.T) {
 
 // TestRegisterRejectsDuplicateAndShortPassword covers registration validation.
 func TestRegisterRejectsDuplicateAndShortPassword(t *testing.T) {
+	// Configure an invite token so the post-bootstrap duplicate attempt reaches
+	// the credential layer (otherwise a bootstrapped instance with no token is
+	// CLOSED — see TestPentest_Creds_RegistrationClosedOnceBootstrapped).
+	t.Setenv(EnvRegistrationToken, "invite-secret")
 	h := NewAuthHandlerWithCreds(credsTestCfg(), userauth.NewNullStore())
 	r := gin.New()
 	r.POST("/auth/register", h.Register)
 
-	// Short password rejected.
+	// Short password rejected (policy is checked before any auth/bootstrap gate).
 	if w := doReq(r, http.MethodPost, "/auth/register", map[string]string{
 		"account_id": "x@vulos.org", "password": "short",
 	}); w.Code != http.StatusBadRequest {
 		t.Fatalf("short password: expected 400, got %d", w.Code)
 	}
 
-	// First real registration succeeds.
+	// First real registration succeeds via atomic bootstrap (password meets the
+	// policy: ≥10 chars, ≥2 character classes).
 	if w := doReq(r, http.MethodPost, "/auth/register", map[string]string{
-		"account_id": "x@vulos.org", "password": "longenough",
+		"account_id": "x@vulos.org", "password": "Long-Enough-1",
 	}); w.Code != http.StatusCreated {
 		t.Fatalf("first register: expected 201, got %d", w.Code)
 	}
-	// Duplicate rejected.
-	if w := doReq(r, http.MethodPost, "/auth/register", map[string]string{
-		"account_id": "x@vulos.org", "password": "longenough2",
-	}); w.Code != http.StatusConflict {
-		t.Fatalf("duplicate register: expected 409, got %d", w.Code)
+	// Duplicate rejected: re-register the same id WITH a valid invite token so
+	// the request reaches the duplicate check and returns 409 (no takeover).
+	req := httptest.NewRequest(http.MethodPost, "/auth/register",
+		strings.NewReader(`{"account_id":"x@vulos.org","password":"Long-Enough-2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Registration-Token", "invite-secret")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("duplicate register: expected 409, got %d (%s)", w.Code, w.Body.String())
 	}
 }
 
