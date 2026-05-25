@@ -23,10 +23,11 @@ import (
 // ActivityHandler serves the activity feed and named-snapshot endpoints.
 type ActivityHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewActivityHandler(store storage.Storage) *ActivityHandler {
-	return &ActivityHandler{store: store}
+	return &ActivityHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // GetActivity handles GET /api/files/:id/activity.
@@ -34,6 +35,10 @@ func NewActivityHandler(store storage.Storage) *ActivityHandler {
 // single chronological feed of ActivityEvent objects.
 func (h *ActivityHandler) GetActivity(c *gin.Context) {
 	fileID := c.Param("id")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	if _, err := h.store.GetFile(fileID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
@@ -121,6 +126,10 @@ type createSnapshotRequest struct {
 func (h *ActivityHandler) CreateNamedSnapshot(c *gin.Context) {
 	fileID := c.Param("id")
 
+	if !h.authz.require(c, fileID) {
+		return
+	}
+
 	file, err := h.store.GetFile(fileID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
@@ -156,6 +165,10 @@ func (h *ActivityHandler) CreateNamedSnapshot(c *gin.Context) {
 func (h *ActivityHandler) LabelVersion(c *gin.Context) {
 	fileID := c.Param("id")
 	versionID := c.Param("vid")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	var req models.LabelVersionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

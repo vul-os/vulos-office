@@ -2,7 +2,9 @@
 //   reactions (OFFICE-SPACES-1), pins (OFFICE-SPACES-6),
 //   user status (OFFICE-SPACES-4), channel search (OFFICE-SPACES-5).
 //
-// All state is in-memory (NullPersister pattern) — no CGO, no external DB.
+// Presence (status/reactions/pins) is held in fast in-memory indexes but is now
+// WRITE-THROUGH to the durable spaces.Persister, and the indexes are rebuilt
+// from the Persister on startup — so presence survives a restart (P1 fix).
 // Full-text search uses a simple linear scan over the in-memory message index
 // (equivalent to SQLite FTS5 for the MVP; pluggable when the Persister gains FTS).
 package handlers
@@ -15,6 +17,7 @@ import (
 	"unicode"
 
 	"vulos-office/backend/models"
+	"vulos-office/backend/spaces"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,11 +32,27 @@ import (
 type reactionsStore struct {
 	mu sync.RWMutex
 	// byMsg[msgID][reactionKey] = reaction
-	byMsg map[string]map[string]*models.Reaction
+	byMsg   map[string]map[string]*models.Reaction
+	persist spaces.Persister
 }
 
-func newReactionsStore() *reactionsStore {
-	return &reactionsStore{byMsg: make(map[string]map[string]*models.Reaction)}
+func newReactionsStore(p spaces.Persister) *reactionsStore {
+	rs := &reactionsStore{byMsg: make(map[string]map[string]*models.Reaction), persist: p}
+	// Rebuild the in-memory index from durable state so reactions survive restart.
+	if p != nil {
+		if existing, err := p.ListReactions(); err == nil {
+			for _, r := range existing {
+				m := rs.byMsg[r.MessageID]
+				if m == nil {
+					m = make(map[string]*models.Reaction)
+					rs.byMsg[r.MessageID] = m
+				}
+				rr := *r
+				m[reactionKey(r.MessageID, r.Emoji, r.UserID)] = &rr
+			}
+		}
+	}
+	return rs
 }
 
 func reactionKey(msgID, emoji, userID string) string {
@@ -52,11 +71,15 @@ func (rs *reactionsStore) Add(msgID, emoji, userID string) {
 	if _, exists := m[k]; exists {
 		return // idempotent
 	}
-	m[k] = &models.Reaction{
+	r := &models.Reaction{
 		MessageID: msgID,
 		Emoji:     emoji,
 		UserID:    userID,
 		CreatedAt: time.Now(),
+	}
+	m[k] = r
+	if rs.persist != nil {
+		_ = rs.persist.SaveReaction(r)
 	}
 }
 
@@ -68,6 +91,9 @@ func (rs *reactionsStore) Remove(msgID, emoji, userID string) {
 		if len(m) == 0 {
 			delete(rs.byMsg, msgID)
 		}
+	}
+	if rs.persist != nil {
+		_ = rs.persist.DeleteReaction(msgID, emoji, userID)
 	}
 }
 
@@ -87,12 +113,22 @@ func (rs *reactionsStore) ListByChannel(channelID string, messages []*models.Mes
 // ---- pinsStore ---------------------------------------------------------------
 
 type pinsStore struct {
-	mu   sync.RWMutex
-	pins map[string][]*models.PinnedMessage // channelID → pins
+	mu      sync.RWMutex
+	pins    map[string][]*models.PinnedMessage // channelID → pins
+	persist spaces.Persister
 }
 
-func newPinsStore() *pinsStore {
-	return &pinsStore{pins: make(map[string][]*models.PinnedMessage)}
+func newPinsStore(p spaces.Persister) *pinsStore {
+	ps := &pinsStore{pins: make(map[string][]*models.PinnedMessage), persist: p}
+	if p != nil {
+		if existing, err := p.ListPins(); err == nil {
+			for _, pin := range existing {
+				pp := *pin
+				ps.pins[pin.ChannelID] = append(ps.pins[pin.ChannelID], &pp)
+			}
+		}
+	}
+	return ps
 }
 
 func (ps *pinsStore) Pin(channelID, msgID, pinnedBy, body, authorID string) {
@@ -103,14 +139,18 @@ func (ps *pinsStore) Pin(channelID, msgID, pinnedBy, body, authorID string) {
 			return // idempotent
 		}
 	}
-	ps.pins[channelID] = append(ps.pins[channelID], &models.PinnedMessage{
+	pin := &models.PinnedMessage{
 		ChannelID: channelID,
 		MessageID: msgID,
 		AuthorID:  authorID,
 		Body:      body,
 		PinnedBy:  pinnedBy,
 		PinnedAt:  time.Now(),
-	})
+	}
+	ps.pins[channelID] = append(ps.pins[channelID], pin)
+	if ps.persist != nil {
+		_ = ps.persist.SavePin(pin)
+	}
 }
 
 func (ps *pinsStore) Unpin(channelID, msgID string) {
@@ -124,6 +164,9 @@ func (ps *pinsStore) Unpin(channelID, msgID string) {
 		}
 	}
 	ps.pins[channelID] = out
+	if ps.persist != nil {
+		_ = ps.persist.DeletePin(channelID, msgID)
+	}
 }
 
 func (ps *pinsStore) List(channelID string) []*models.PinnedMessage {
@@ -137,23 +180,37 @@ func (ps *pinsStore) List(channelID string) []*models.PinnedMessage {
 // ---- statusStore -------------------------------------------------------------
 
 type statusStore struct {
-	mu     sync.RWMutex
-	status map[string]*models.UserStatus // userID → status
+	mu      sync.RWMutex
+	status  map[string]*models.UserStatus // userID → status
+	persist spaces.Persister
 }
 
-func newStatusStore() *statusStore {
-	return &statusStore{status: make(map[string]*models.UserStatus)}
+func newStatusStore(p spaces.Persister) *statusStore {
+	ss := &statusStore{status: make(map[string]*models.UserStatus), persist: p}
+	if p != nil {
+		if existing, err := p.ListStatuses(); err == nil {
+			for _, s := range existing {
+				cp := *s
+				ss.status[s.UserID] = &cp
+			}
+		}
+	}
+	return ss
 }
 
 func (ss *statusStore) Set(userID, status, customText string, untilUnix int64) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	ss.status[userID] = &models.UserStatus{
+	s := &models.UserStatus{
 		UserID:     userID,
 		Status:     status,
 		CustomText: customText,
 		UntilUnix:  untilUnix,
 		UpdatedAt:  time.Now(),
+	}
+	ss.status[userID] = s
+	if ss.persist != nil {
+		_ = ss.persist.SaveStatus(s)
 	}
 }
 
@@ -175,11 +232,14 @@ type SpacesExtStore struct {
 	status    *statusStore
 }
 
-func newSpacesExt() *SpacesExtStore {
+// newSpacesExt builds the additive sub-stores, write-through to (and rebuilt
+// from) the supplied durable Persister so presence survives a restart. Pass nil
+// for a purely in-memory ext (legacy behaviour).
+func newSpacesExt(p spaces.Persister) *SpacesExtStore {
 	return &SpacesExtStore{
-		reactions: newReactionsStore(),
-		pins:      newPinsStore(),
-		status:    newStatusStore(),
+		reactions: newReactionsStore(p),
+		pins:      newPinsStore(p),
+		status:    newStatusStore(p),
 	}
 }
 
@@ -192,9 +252,10 @@ type SpacesHandlerExt struct {
 
 // NewSpacesHandlerExt returns the extended handler; registered in main.go.
 func NewSpacesHandlerExt() *SpacesHandlerExt {
+	base := NewSpacesHandler()
 	return &SpacesHandlerExt{
-		SpacesHandler: NewSpacesHandler(),
-		ext:           newSpacesExt(),
+		SpacesHandler: base,
+		ext:           newSpacesExt(base.store.Persister()),
 	}
 }
 

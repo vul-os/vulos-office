@@ -17,16 +17,20 @@ import (
 // Content-Disposition headers.
 type DocsExportHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 // NewDocsExportHandler constructs a DocsExportHandler.
 func NewDocsExportHandler(store storage.Storage) *DocsExportHandler {
-	return &DocsExportHandler{store: store}
+	return &DocsExportHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // Export handles GET /api/files/:id/export?format=pdf|docx
 func (h *DocsExportHandler) Export(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	format := c.Query("format")
 	if format == "" {
 		format = "pdf"

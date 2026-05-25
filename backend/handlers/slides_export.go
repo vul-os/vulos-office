@@ -26,16 +26,20 @@ import (
 // SlidesExportHandler handles PDF/PPTX export for slide decks.
 type SlidesExportHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 // NewSlidesExportHandler constructs the handler.
 func NewSlidesExportHandler(store storage.Storage) *SlidesExportHandler {
-	return &SlidesExportHandler{store: store}
+	return &SlidesExportHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // Export handles GET /api/slides/:id/export?format=pdf|pptx
 func (h *SlidesExportHandler) Export(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	format := c.DefaultQuery("format", "pdf")
 
 	// Fetch the file from storage.

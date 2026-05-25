@@ -23,10 +23,11 @@ import (
 
 type CommentHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewCommentHandler(store storage.Storage) *CommentHandler {
-	return &CommentHandler{store: store}
+	return &CommentHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // hlcNow returns a simple HLC-compatible clock string (wall-ms padded, monotone via uuid suffix).
@@ -43,6 +44,9 @@ type CommentWithReplies struct {
 // List returns all comments for a file with their replies.
 func (h *CommentHandler) List(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	comments, err := h.store.ListComments(fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -65,6 +69,10 @@ func (h *CommentHandler) List(c *gin.Context) {
 
 // Create adds a new comment anchored to a file location.
 func (h *CommentHandler) Create(c *gin.Context) {
+	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	var req models.CreateCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -73,7 +81,7 @@ func (h *CommentHandler) Create(c *gin.Context) {
 
 	cm := &models.Comment{
 		ID:       uuid.New().String(),
-		FileID:   c.Param("id"),
+		FileID:   fileID,
 		Anchor:   req.Anchor,
 		AuthorID: req.AuthorID,
 		Body:     req.Body,
@@ -91,6 +99,10 @@ func (h *CommentHandler) Create(c *gin.Context) {
 func (h *CommentHandler) Update(c *gin.Context) {
 	fileID := c.Param("id")
 	commentID := c.Param("cid")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	cm, err := h.store.GetComment(fileID, commentID)
 	if err != nil {
@@ -123,6 +135,9 @@ func (h *CommentHandler) Update(c *gin.Context) {
 func (h *CommentHandler) Delete(c *gin.Context) {
 	fileID := c.Param("id")
 	commentID := c.Param("cid")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	if err := h.store.DeleteComment(fileID, commentID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "comment not found"})
 		return
@@ -134,6 +149,10 @@ func (h *CommentHandler) Delete(c *gin.Context) {
 func (h *CommentHandler) CreateReply(c *gin.Context) {
 	fileID := c.Param("id")
 	commentID := c.Param("cid")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	// Ensure the comment exists.
 	if _, err := h.store.GetComment(fileID, commentID); err != nil {
@@ -168,6 +187,10 @@ func (h *CommentHandler) UpdateReply(c *gin.Context) {
 	commentID := c.Param("cid")
 	replyID := c.Param("rid")
 
+	if !h.authz.require(c, c.Param("id")) {
+		return
+	}
+
 	r, err := h.store.GetReply(commentID, replyID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "reply not found"})
@@ -196,6 +219,10 @@ func (h *CommentHandler) UpdateReply(c *gin.Context) {
 func (h *CommentHandler) DeleteReply(c *gin.Context) {
 	commentID := c.Param("cid")
 	replyID := c.Param("rid")
+
+	if !h.authz.require(c, c.Param("id")) {
+		return
+	}
 
 	r, err := h.store.GetReply(commentID, replyID)
 	if err != nil {

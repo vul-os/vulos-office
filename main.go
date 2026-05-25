@@ -80,6 +80,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(cfg)
 	api := r.Group("/api")
 	api.POST("/auth/login", authHandler.Login)
+	api.POST("/auth/register", authHandler.Register)
 	api.POST("/auth/logout", authHandler.Logout)
 	api.GET("/auth/status", authHandler.Status)
 
@@ -95,6 +96,8 @@ func main() {
 	protected.POST("/files", fileHandler.Create)
 	protected.PUT("/files/:id", fileHandler.Update)
 	protected.DELETE("/files/:id", fileHandler.Delete)
+	// Per-file sharing (owner/admin grants or revokes another account's access).
+	protected.POST("/files/:id/share", fileHandler.Share)
 
 	// OFFICE-08: version history endpoints.
 	versionHandler := handlers.NewVersionHandler(store)

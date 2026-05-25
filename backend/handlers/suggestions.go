@@ -20,15 +20,19 @@ import (
 
 type SuggestionHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewSuggestionHandler(store storage.Storage) *SuggestionHandler {
-	return &SuggestionHandler{store: store}
+	return &SuggestionHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // List returns all suggestions for a file.
 func (h *SuggestionHandler) List(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	suggestions, err := h.store.ListSuggestions(fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -42,6 +46,10 @@ func (h *SuggestionHandler) List(c *gin.Context) {
 
 // Create records a new suggestion (insert or delete proposal).
 func (h *SuggestionHandler) Create(c *gin.Context) {
+	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	var req models.CreateSuggestionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -50,7 +58,7 @@ func (h *SuggestionHandler) Create(c *gin.Context) {
 
 	sg := &models.Suggestion{
 		ID:       uuid.New().String(),
-		FileID:   c.Param("id"),
+		FileID:   fileID,
 		Kind:     req.Kind,
 		State:    models.SuggestionPending,
 		AuthorID: req.AuthorID,
@@ -71,6 +79,10 @@ func (h *SuggestionHandler) Create(c *gin.Context) {
 func (h *SuggestionHandler) Update(c *gin.Context) {
 	fileID := c.Param("id")
 	suggestionID := c.Param("sid")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	sg, err := h.store.GetSuggestion(fileID, suggestionID)
 	if err != nil {
@@ -104,6 +116,9 @@ func (h *SuggestionHandler) Update(c *gin.Context) {
 func (h *SuggestionHandler) Delete(c *gin.Context) {
 	fileID := c.Param("id")
 	suggestionID := c.Param("sid")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	if err := h.store.DeleteSuggestion(fileID, suggestionID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "suggestion not found"})
 		return

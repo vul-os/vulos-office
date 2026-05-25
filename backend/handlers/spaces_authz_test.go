@@ -20,9 +20,10 @@ func init() { gin.SetMode(gin.TestMode) }
 // tests never touch disk.
 func testHandler(t *testing.T) *SpacesHandlerExt {
 	t.Helper()
+	p := spaces.NewNullPersister()
 	return &SpacesHandlerExt{
-		SpacesHandler: NewSpacesHandlerWithPersister(spaces.NewNullPersister()),
-		ext:           newSpacesExt(),
+		SpacesHandler: NewSpacesHandlerWithPersister(p),
+		ext:           newSpacesExt(p),
 	}
 }
 

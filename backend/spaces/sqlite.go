@@ -115,6 +115,33 @@ func (p *SQLitePersister) init() error {
 			updated_at      INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (account_id, channel_id)
 		);
+		-- Presence: durable user status, reactions, and pins so they survive a
+		-- restart (previously in-memory only in spaces_ext.go).
+		CREATE TABLE IF NOT EXISTS user_status (
+			user_id     TEXT PRIMARY KEY,
+			status      TEXT NOT NULL DEFAULT 'online',
+			custom_text TEXT NOT NULL DEFAULT '',
+			until_unix  INTEGER NOT NULL DEFAULT 0,
+			updated_at  INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE IF NOT EXISTS reactions (
+			message_id TEXT NOT NULL,
+			emoji      TEXT NOT NULL,
+			user_id    TEXT NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, emoji, user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
+		CREATE TABLE IF NOT EXISTS pins (
+			channel_id TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			author_id  TEXT NOT NULL DEFAULT '',
+			body       TEXT NOT NULL DEFAULT '',
+			pinned_by  TEXT NOT NULL DEFAULT '',
+			pinned_at  INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (channel_id, message_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_pins_channel ON pins(channel_id);
 	`)
 	if err != nil {
 		return fmt.Errorf("spaces: init schema: %w", err)
@@ -378,4 +405,109 @@ func (p *SQLitePersister) GetReadState(accountID, channelID string) (*models.Rea
 	default:
 		return nil, err
 	}
+}
+
+// ---- presence: user status --------------------------------------------------
+
+func (p *SQLitePersister) SaveStatus(s *models.UserStatus) error {
+	_, err := p.db.Exec(
+		`INSERT INTO user_status (user_id, status, custom_text, until_unix, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET status=excluded.status,
+		   custom_text=excluded.custom_text, until_unix=excluded.until_unix,
+		   updated_at=excluded.updated_at`,
+		s.UserID, s.Status, s.CustomText, s.UntilUnix, s.UpdatedAt.UnixNano())
+	return err
+}
+
+func (p *SQLitePersister) ListStatuses() ([]*models.UserStatus, error) {
+	rows, err := p.db.Query(`SELECT user_id, status, custom_text, until_unix, updated_at FROM user_status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.UserStatus
+	for rows.Next() {
+		var s models.UserStatus
+		var updated int64
+		if err := rows.Scan(&s.UserID, &s.Status, &s.CustomText, &s.UntilUnix, &updated); err != nil {
+			return nil, err
+		}
+		s.UpdatedAt = time.Unix(0, updated)
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
+// ---- presence: reactions -----------------------------------------------------
+
+func (p *SQLitePersister) SaveReaction(r *models.Reaction) error {
+	_, err := p.db.Exec(
+		`INSERT INTO reactions (message_id, emoji, user_id, created_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(message_id, emoji, user_id) DO NOTHING`,
+		r.MessageID, r.Emoji, r.UserID, r.CreatedAt.UnixNano())
+	return err
+}
+
+func (p *SQLitePersister) DeleteReaction(msgID, emoji, userID string) error {
+	_, err := p.db.Exec(
+		`DELETE FROM reactions WHERE message_id = ? AND emoji = ? AND user_id = ?`,
+		msgID, emoji, userID)
+	return err
+}
+
+func (p *SQLitePersister) ListReactions() ([]*models.Reaction, error) {
+	rows, err := p.db.Query(`SELECT message_id, emoji, user_id, created_at FROM reactions`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.Reaction
+	for rows.Next() {
+		var r models.Reaction
+		var created int64
+		if err := rows.Scan(&r.MessageID, &r.Emoji, &r.UserID, &created); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = time.Unix(0, created)
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+// ---- presence: pins ----------------------------------------------------------
+
+func (p *SQLitePersister) SavePin(pin *models.PinnedMessage) error {
+	_, err := p.db.Exec(
+		`INSERT INTO pins (channel_id, message_id, author_id, body, pinned_by, pinned_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(channel_id, message_id) DO UPDATE SET author_id=excluded.author_id,
+		   body=excluded.body, pinned_by=excluded.pinned_by, pinned_at=excluded.pinned_at`,
+		pin.ChannelID, pin.MessageID, pin.AuthorID, pin.Body, pin.PinnedBy, pin.PinnedAt.UnixNano())
+	return err
+}
+
+func (p *SQLitePersister) DeletePin(channelID, msgID string) error {
+	_, err := p.db.Exec(`DELETE FROM pins WHERE channel_id = ? AND message_id = ?`, channelID, msgID)
+	return err
+}
+
+func (p *SQLitePersister) ListPins() ([]*models.PinnedMessage, error) {
+	rows, err := p.db.Query(`SELECT channel_id, message_id, author_id, body, pinned_by, pinned_at FROM pins`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.PinnedMessage
+	for rows.Next() {
+		var pin models.PinnedMessage
+		var pinnedAt int64
+		if err := rows.Scan(&pin.ChannelID, &pin.MessageID, &pin.AuthorID, &pin.Body, &pin.PinnedBy, &pinnedAt); err != nil {
+			return nil, err
+		}
+		pin.PinnedAt = time.Unix(0, pinnedAt)
+		out = append(out, &pin)
+	}
+	return out, rows.Err()
 }

@@ -14,10 +14,11 @@ import (
 // SheetsHandler handles XLSX import/export endpoints for Sheets files.
 type SheetsHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewSheetsHandler(store storage.Storage) *SheetsHandler {
-	return &SheetsHandler{store: store}
+	return &SheetsHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // Import handles POST /api/sheets/:id/import
@@ -25,6 +26,9 @@ func NewSheetsHandler(store storage.Storage) *SheetsHandler {
 // Parses the XLSX and writes the resulting Fortune Sheet JSON into the file's Content.
 func (h *SheetsHandler) Import(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	fh, err := c.FormFile("file")
 	if err != nil {
@@ -72,6 +76,9 @@ func (h *SheetsHandler) Import(c *gin.Context) {
 // Returns the file's Fortune Sheet JSON content as an XLSX download.
 func (h *SheetsHandler) Export(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	format := c.DefaultQuery("format", "xlsx")
 
 	existing, err := h.store.GetFile(fileID)

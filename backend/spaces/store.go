@@ -133,6 +133,20 @@ type Persister interface {
 	// ReadState
 	SaveReadState(rs *models.ReadState) error
 	GetReadState(accountID, channelID string) (*models.ReadState, error)
+
+	// Presence: user status (OFFICE-SPACES-4) — durable so it survives restart.
+	SaveStatus(s *models.UserStatus) error
+	ListStatuses() ([]*models.UserStatus, error)
+
+	// Reactions (OFFICE-SPACES-1) — durable.
+	SaveReaction(r *models.Reaction) error
+	DeleteReaction(msgID, emoji, userID string) error
+	ListReactions() ([]*models.Reaction, error)
+
+	// Pins (OFFICE-SPACES-6) — durable.
+	SavePin(p *models.PinnedMessage) error
+	DeletePin(channelID, msgID string) error
+	ListPins() ([]*models.PinnedMessage, error)
 }
 
 // SpacesStore is a CRDT message store for one node/replica.
@@ -163,6 +177,11 @@ func Open(nodeID string, p Persister) (*SpacesStore, error) {
 	}
 	return s, nil
 }
+
+// Persister returns the underlying durable Persister so callers (e.g. the
+// presence sub-stores in handlers/spaces_ext.go) can write-through state that
+// must survive a restart.
+func (s *SpacesStore) Persister() Persister { return s.persist }
 
 func (s *SpacesStore) load() error {
 	chs, err := s.persist.ListChannels()
@@ -680,6 +699,9 @@ type NullPersister struct {
 	messages   map[string]map[string]*models.Message // channelID → msgID → msg
 	ops        map[string][]*models.MessageOp        // channelID → ops
 	readStates map[string]*models.ReadState          // "accountID:channelID" → rs
+	statuses   map[string]*models.UserStatus         // userID → status
+	reactions  map[string]*models.Reaction           // "msgID|emoji|userID" → reaction
+	pins       map[string]*models.PinnedMessage      // "channelID|msgID" → pin
 }
 
 func NewNullPersister() *NullPersister {
@@ -689,6 +711,9 @@ func NewNullPersister() *NullPersister {
 		messages:    make(map[string]map[string]*models.Message),
 		ops:         make(map[string][]*models.MessageOp),
 		readStates:  make(map[string]*models.ReadState),
+		statuses:    make(map[string]*models.UserStatus),
+		reactions:   make(map[string]*models.Reaction),
+		pins:        make(map[string]*models.PinnedMessage),
 	}
 }
 
@@ -834,4 +859,80 @@ func (p *NullPersister) GetReadState(accountID, channelID string) (*models.ReadS
 		return rs, nil
 	}
 	return &models.ReadState{AccountID: accountID, ChannelID: channelID}, nil
+}
+
+func (p *NullPersister) SaveStatus(s *models.UserStatus) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := *s
+	p.statuses[s.UserID] = &cp
+	return nil
+}
+
+func (p *NullPersister) ListStatuses() ([]*models.UserStatus, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]*models.UserStatus, 0, len(p.statuses))
+	for _, s := range p.statuses {
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func reactionDBKey(msgID, emoji, userID string) string {
+	return msgID + "|" + emoji + "|" + userID
+}
+
+func (p *NullPersister) SaveReaction(r *models.Reaction) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := *r
+	p.reactions[reactionDBKey(r.MessageID, r.Emoji, r.UserID)] = &cp
+	return nil
+}
+
+func (p *NullPersister) DeleteReaction(msgID, emoji, userID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.reactions, reactionDBKey(msgID, emoji, userID))
+	return nil
+}
+
+func (p *NullPersister) ListReactions() ([]*models.Reaction, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]*models.Reaction, 0, len(p.reactions))
+	for _, r := range p.reactions {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func pinDBKey(channelID, msgID string) string {
+	return channelID + "|" + msgID
+}
+
+func (p *NullPersister) SavePin(pin *models.PinnedMessage) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := *pin
+	p.pins[pinDBKey(pin.ChannelID, pin.MessageID)] = &cp
+	return nil
+}
+
+func (p *NullPersister) DeletePin(channelID, msgID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.pins, pinDBKey(channelID, msgID))
+	return nil
+}
+
+func (p *NullPersister) ListPins() ([]*models.PinnedMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]*models.PinnedMessage, 0, len(p.pins))
+	for _, pin := range p.pins {
+		out = append(out, pin)
+	}
+	return out, nil
 }

@@ -15,15 +15,19 @@ import (
 // POST /api/files/:id/versions/:vid/restore.
 type VersionHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewVersionHandler(store storage.Storage) *VersionHandler {
-	return &VersionHandler{store: store}
+	return &VersionHandler{store: store, authz: SharedFileAuthz()}
 }
 
 // ListVersions handles GET /api/files/:id/versions.
 func (h *VersionHandler) ListVersions(c *gin.Context) {
 	fileID := c.Param("id")
+	if !h.authz.require(c, fileID) {
+		return
+	}
 	// Verify file exists.
 	if _, err := h.store.GetFile(fileID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
@@ -47,6 +51,10 @@ func (h *VersionHandler) ListVersions(c *gin.Context) {
 func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 	fileID := c.Param("id")
 	versionID := c.Param("vid")
+
+	if !h.authz.require(c, fileID) {
+		return
+	}
 
 	file, err := h.store.GetFile(fileID)
 	if err != nil {

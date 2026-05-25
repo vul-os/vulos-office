@@ -12,10 +12,17 @@ import (
 
 type FileHandler struct {
 	store storage.Storage
+	authz *FileAuthz
 }
 
 func NewFileHandler(store storage.Storage) *FileHandler {
-	return &FileHandler{store: store}
+	return &FileHandler{store: store, authz: SharedFileAuthz()}
+}
+
+// NewFileHandlerWithAuthz builds a handler over a caller-supplied authorizer
+// (tests use an in-memory NullStore so they never touch disk).
+func NewFileHandlerWithAuthz(store storage.Storage, authz *FileAuthz) *FileHandler {
+	return &FileHandler{store: store, authz: authz}
 }
 
 func (h *FileHandler) List(c *gin.Context) {
@@ -24,14 +31,24 @@ func (h *FileHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if files == nil {
-		files = []*models.File{}
+	// Return only the files the caller may access (owned + shared). Unowned/
+	// legacy files (no recorded owner) remain visible so local/OSS mode and
+	// pre-ACL documents keep working; admins see everything.
+	out := make([]*models.File, 0, len(files))
+	for _, f := range files {
+		if h.authz.canAccess(c, f.ID) {
+			out = append(out, f)
+		}
 	}
-	c.JSON(http.StatusOK, files)
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *FileHandler) Get(c *gin.Context) {
-	file, err := h.store.GetFile(c.Param("id"))
+	id := c.Param("id")
+	if !h.authz.require(c, id) {
+		return
+	}
+	file, err := h.store.GetFile(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
@@ -57,10 +74,16 @@ func (h *FileHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Record the creating identity as owner so the file is private by default.
+	h.authz.recordOwner(c, file.ID)
 	c.JSON(http.StatusCreated, file)
 }
 
 func (h *FileHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	if !h.authz.require(c, id) {
+		return
+	}
 	var req models.UpdateFileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -68,7 +91,7 @@ func (h *FileHandler) Update(c *gin.Context) {
 	}
 
 	file := &models.File{
-		ID:      c.Param("id"),
+		ID:      id,
 		Name:    req.Name,
 		Content: req.Content,
 	}
@@ -87,7 +110,11 @@ func (h *FileHandler) Update(c *gin.Context) {
 }
 
 func (h *FileHandler) Delete(c *gin.Context) {
-	if err := h.store.DeleteFile(c.Param("id")); err != nil {
+	id := c.Param("id")
+	if !h.authz.require(c, id) {
+		return
+	}
+	if err := h.store.DeleteFile(id); err != nil {
 		if err.Error() == "file not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 			return
@@ -95,5 +122,40 @@ func (h *FileHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Drop ACL state for the deleted file.
+	_ = h.authz.Store().Delete(id)
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// Share grants another account access to a file the caller owns (or admin).
+// POST /api/files/:id/share  { "account_id": "...", "revoke": false }
+func (h *FileHandler) Share(c *gin.Context) {
+	id := c.Param("id")
+	if !h.authz.require(c, id) {
+		return
+	}
+	// Verify the file actually exists before recording a share.
+	if _, err := h.store.GetFile(id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	var req struct {
+		AccountID string `json:"account_id" binding:"required"`
+		Revoke    bool   `json:"revoke"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var err error
+	if req.Revoke {
+		err = h.authz.Store().Unshare(id, req.AccountID)
+	} else {
+		err = h.authz.Store().Share(id, req.AccountID)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
