@@ -468,7 +468,35 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
   }
 
   // ---- Roster for mention picker ----------------------------------------------
-  const mentionMembers = roster.map((p) => ({
+  // NAME-CAPTURE-01: merge the channel's members (which now carry the
+  // display_name captured at invite/join time, with the account-id/email
+  // fallback applied server-side) with the live presence roster. Presence
+  // entries win for live status/colour; every fetched member is included so
+  // captured names render even when the presence fabric is not yet wired.
+  const displayRoster = (() => {
+    const byId = new Map()
+    for (const m of members) {
+      byId.set(m.account_id, {
+        accountId: m.account_id,
+        displayName: m.display_name || m.account_id,
+        status: 'offline',
+      })
+    }
+    for (const p of roster) {
+      const existing = byId.get(p.accountId) || {}
+      byId.set(p.accountId, {
+        ...existing,
+        ...p,
+        // Prefer a captured display name over the presence-supplied label.
+        displayName: existing.displayName && existing.displayName !== p.accountId
+          ? existing.displayName
+          : (p.displayName || existing.displayName || p.accountId),
+      })
+    }
+    return Array.from(byId.values())
+  })()
+
+  const mentionMembers = displayRoster.map((p) => ({
     accountId: p.accountId,
     displayName: p.displayName,
     status: p.status,
@@ -592,13 +620,13 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
                   )}
                 </div>
 
-                {/* Roster pills */}
-                {roster.length > 0 && (
+                {/* Roster pills — captured display names + live presence */}
+                {displayRoster.length > 0 && (
                   <div
                     className="flex items-center gap-1 ml-1"
-                    title={`${roster.length} member${roster.length !== 1 ? 's' : ''} online`}
+                    title={`${displayRoster.length} member${displayRoster.length !== 1 ? 's' : ''}`}
                   >
-                    {roster.slice(0, 5).map((p) => (
+                    {displayRoster.slice(0, 5).map((p) => (
                       <span
                         key={p.accountId}
                         className="relative inline-flex items-center gap-1 bg-bg-elev2 border border-line rounded-pill pl-1 pr-2 py-0.5"
@@ -609,7 +637,7 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
                       >
                         <span
                           className="relative inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0"
-                          style={{ backgroundColor: p.color }}
+                          style={{ backgroundColor: p.color || '#6b7280' }}
                         >
                           {(p.displayName || '?')[0].toUpperCase()}
                           <span className="absolute -bottom-0.5 -right-0.5">
@@ -621,8 +649,8 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
                         </span>
                       </span>
                     ))}
-                    {roster.length > 5 && (
-                      <span className="text-2xs text-ink-faint px-1">+{roster.length - 5}</span>
+                    {displayRoster.length > 5 && (
+                      <span className="text-2xs text-ink-faint px-1">+{displayRoster.length - 5}</span>
                     )}
                   </div>
                 )}

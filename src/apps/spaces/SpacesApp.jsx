@@ -117,6 +117,9 @@ function CreateChannelModal({ open, onClose, onCreated }) {
 
 function NewDMModal({ open, onClose, onCreated }) {
   const [recipient, setRecipient] = useState('')
+  // NAME-CAPTURE-01: optionally name the person you're inviting so the roster
+  // shows their name instead of their account id/email. Sent as member_names.
+  const [recipientName, setRecipientName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -128,8 +131,11 @@ function NewDMModal({ open, onClose, onCreated }) {
     setError(null)
     try {
       const dmName = ['me', r].sort().join('-')
-      const ch = await api.spacesCreateChannel(dmName, 'dm', ['me', r])
+      const memberNames = recipientName.trim() ? { [r]: recipientName.trim() } : null
+      const ch = await api.spacesCreateChannel(dmName, 'dm', ['me', r], memberNames)
       onCreated(ch)
+      setRecipient('')
+      setRecipientName('')
       onClose()
     } catch (err) {
       setError(err.message || 'Create failed')
@@ -153,11 +159,77 @@ function NewDMModal({ open, onClose, onCreated }) {
             leading={<AtSign size={13} />}
             autoFocus
           />
+          <Input
+            label="Their name (optional)"
+            placeholder="e.g. Jane Doe"
+            value={recipientName}
+            onChange={(e) => setRecipientName(e.target.value)}
+            leading={<Users size={13} />}
+          />
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>
           <Button variant="primary" type="submit" disabled={loading || !recipient.trim()}>
             {loading ? 'Opening…' : 'Open DM'}
+          </Button>
+        </Modal.Footer>
+      </form>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DisplayNameModal — "your display name" profile control
+// ---------------------------------------------------------------------------
+
+// NAME-CAPTURE-01: lets the signed-in member set their own display name in the
+// active channel on first join. Calls PUT /spaces/channels/:id/members/me/name
+// which routes through the office-local SetDisplayName seam.
+function DisplayNameModal({ open, onClose, channelId, onSaved }) {
+  const [displayName, setDisplayName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!channelId) return
+    setLoading(true)
+    setError(null)
+    try {
+      await api.spacesSetMyName(channelId, displayName.trim())
+      if (onSaved) onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message || 'Save failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Your display name">
+      <form onSubmit={submit}>
+        <Modal.Body className="space-y-4">
+          {error && (
+            <p className="text-xs text-danger bg-danger-bg rounded-sm px-3 py-2">{error}</p>
+          )}
+          <p className="text-2xs text-ink-faint">
+            How you appear to others in this channel. Leave blank to show your
+            account id.
+          </p>
+          <Input
+            label="Display name"
+            placeholder="e.g. Jane Doe"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            leading={<Users size={13} />}
+            autoFocus
+          />
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>
+          <Button variant="primary" type="submit" disabled={loading || !channelId}>
+            {loading ? 'Saving…' : 'Save name'}
           </Button>
         </Modal.Footer>
       </form>
@@ -175,6 +247,7 @@ function SpacesSidebar({
 }) {
   const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [showNewDM, setShowNewDM] = useState(false)
+  const [showDisplayName, setShowDisplayName] = useState(false)
   const [channelsOpen, setChannelsOpen] = useState(true)
   const [dmsOpen, setDmsOpen] = useState(true)
   const [search, setSearch] = useState('')
@@ -337,6 +410,18 @@ function SpacesSidebar({
             />
           )}
         </div>
+
+        {/* NAME-CAPTURE-01: set your own display name in the active channel. */}
+        <button
+          type="button"
+          onClick={() => setShowDisplayName(true)}
+          disabled={!activeId}
+          title={activeId ? 'Set your display name' : 'Open a channel first'}
+          className="w-full flex items-center gap-2 h-8 px-3 rounded-md text-ink-muted hover:bg-accent-tint hover:text-ink transition-colors duration-fast ease-out disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Users size={12} />
+          <span className="text-xs truncate tracking-tightish">Set your name</span>
+        </button>
       </Sidebar.Footer>
 
       <CreateChannelModal
@@ -348,6 +433,12 @@ function SpacesSidebar({
         open={showNewDM}
         onClose={() => setShowNewDM(false)}
         onCreated={(ch) => { onRefresh(); onSelect(ch) }}
+      />
+      <DisplayNameModal
+        open={showDisplayName}
+        onClose={() => setShowDisplayName(false)}
+        channelId={activeId}
+        onSaved={onRefresh}
       />
     </Sidebar>
   )

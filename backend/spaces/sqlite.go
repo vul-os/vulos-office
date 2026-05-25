@@ -78,10 +78,11 @@ func (p *SQLitePersister) init() error {
 			updated_at INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE TABLE IF NOT EXISTS memberships (
-			id         TEXT NOT NULL,
-			channel_id TEXT NOT NULL,
-			account_id TEXT NOT NULL,
-			joined_at  INTEGER NOT NULL DEFAULT 0,
+			id           TEXT NOT NULL,
+			channel_id   TEXT NOT NULL,
+			account_id   TEXT NOT NULL,
+			display_name TEXT NOT NULL DEFAULT '',
+			joined_at    INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (channel_id, account_id)
 		);
 		CREATE TABLE IF NOT EXISTS messages (
@@ -118,6 +119,12 @@ func (p *SQLitePersister) init() error {
 	if err != nil {
 		return fmt.Errorf("spaces: init schema: %w", err)
 	}
+	// Migration: add memberships.display_name to databases created before the
+	// name-capture flow landed. CREATE TABLE IF NOT EXISTS above is a no-op for
+	// an existing table, so a pre-existing DB needs the column added here. The
+	// error is swallowed because SQLite has no "ADD COLUMN IF NOT EXISTS" and a
+	// second run (column already present) returns a duplicate-column error.
+	_, _ = p.db.Exec(`ALTER TABLE memberships ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
@@ -182,15 +189,15 @@ func (p *SQLitePersister) DeleteChannel(id string) error {
 
 func (p *SQLitePersister) SaveMembership(m *models.Membership) error {
 	_, err := p.db.Exec(
-		`INSERT INTO memberships (id, channel_id, account_id, joined_at)
-		 VALUES (?, ?, ?, ?)
+		`INSERT INTO memberships (id, channel_id, account_id, display_name, joined_at)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(channel_id, account_id) DO NOTHING`,
-		m.ID, m.ChannelID, m.AccountID, m.JoinedAt.UnixNano())
+		m.ID, m.ChannelID, m.AccountID, m.DisplayName, m.JoinedAt.UnixNano())
 	return err
 }
 
 func (p *SQLitePersister) ListMemberships(channelID string) ([]*models.Membership, error) {
-	rows, err := p.db.Query(`SELECT id, channel_id, account_id, joined_at FROM memberships WHERE channel_id = ?`, channelID)
+	rows, err := p.db.Query(`SELECT id, channel_id, account_id, display_name, joined_at FROM memberships WHERE channel_id = ?`, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +206,7 @@ func (p *SQLitePersister) ListMemberships(channelID string) ([]*models.Membershi
 	for rows.Next() {
 		var m models.Membership
 		var joined int64
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.AccountID, &joined); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.AccountID, &m.DisplayName, &joined); err != nil {
 			return nil, err
 		}
 		m.JoinedAt = time.Unix(0, joined)
@@ -211,6 +218,23 @@ func (p *SQLitePersister) ListMemberships(channelID string) ([]*models.Membershi
 func (p *SQLitePersister) DeleteMembership(channelID, accountID string) error {
 	_, err := p.db.Exec(`DELETE FROM memberships WHERE channel_id = ? AND account_id = ?`, channelID, accountID)
 	return err
+}
+
+func (p *SQLitePersister) SetMembershipName(channelID, accountID, displayName string) error {
+	res, err := p.db.Exec(
+		`UPDATE memberships SET display_name = ? WHERE channel_id = ? AND account_id = ?`,
+		displayName, channelID, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrMemberNotFound
+	}
+	return nil
 }
 
 // ---- messages ----------------------------------------------------------------

@@ -31,11 +31,18 @@ type Channel struct {
 }
 
 // Membership records that a peer belongs to a channel.
+//
+// DisplayName is a member-local human name captured at invite/join time. Auth
+// is email+password only (no canonical full-name source), so the name must be
+// supplied when a member is invited or when the member sets their own profile
+// name on first join. It may be empty — callers fall back to AccountID/email.
+// This mirrors the cloud fleet store's display_name column + MemberNamer seam.
 type Membership struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channel_id"`
-	AccountID string    `json:"account_id"` // Vulos account id
-	JoinedAt  time.Time `json:"joined_at"`
+	ID          string    `json:"id"`
+	ChannelID   string    `json:"channel_id"`
+	AccountID   string    `json:"account_id"` // Vulos account id
+	DisplayName string    `json:"display_name"`
+	JoinedAt    time.Time `json:"joined_at"`
 }
 
 // Message is a single unit of content in a channel or a thread.
@@ -94,6 +101,18 @@ type CreateChannelRequest struct {
 	Name    string      `json:"name" binding:"required"`
 	Type    ChannelType `json:"type"`
 	Members []string    `json:"members"` // for DMs / private channels
+	// MemberNames optionally maps an invited account id → display name so the
+	// name an admin typed at invite time ("invite Jane <jane@x.com>") is applied
+	// via SetDisplayName when the member is added. Account ids absent from the
+	// map are added with an empty name (roster falls back to the id/email).
+	MemberNames map[string]string `json:"member_names,omitempty"`
+}
+
+// SetDisplayNameRequest sets the calling member's own display name. Used by the
+// "your display name" profile control on first join. An empty name clears it
+// (roster then falls back to the account id / email).
+type SetDisplayNameRequest struct {
+	DisplayName string `json:"display_name"`
 }
 
 type SendMessageRequest struct {

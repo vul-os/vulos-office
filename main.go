@@ -242,6 +242,7 @@ func main() {
 	protected.POST("/spaces/channels", forumHandler.CreateChannel)
 	protected.POST("/spaces/channels/:channelId/join", forumHandler.JoinChannel)
 	protected.GET("/spaces/channels/:channelId/members", forumHandler.ListMembers)
+	protected.PUT("/spaces/channels/:channelId/members/me/name", forumHandler.SetMyDisplayName)
 	protected.GET("/spaces/channels/:channelId/messages", forumHandler.ListMessages)
 	protected.POST("/spaces/channels/:channelId/messages", forumHandler.SendMessage)
 	protected.PUT("/spaces/channels/:channelId/messages/:msgId", forumHandler.EditMessage)

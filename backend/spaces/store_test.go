@@ -306,3 +306,106 @@ func TestMembership(t *testing.T) {
 		t.Errorf("expected 1 member, got %d", len(members))
 	}
 }
+
+// TestMemberDisplayName covers the NAME-CAPTURE-01 flow: a member invited/added
+// with a name carries that name in the roster (not the account-id/email
+// fallback), a member can set their own name, and clearing reverts to empty.
+func TestMemberDisplayName(t *testing.T) {
+	s := openStore(t, "node-A")
+	ch, _ := s.CreateChannel("team", models.ChannelTypePrivate, "owner")
+
+	// (1) Invite-with-name: the name supplied at add time is captured.
+	m, err := s.AddMemberWithName(ch.ID, "jane@x.com", "Jane Doe")
+	if err != nil {
+		t.Fatalf("AddMemberWithName: %v", err)
+	}
+	if m.DisplayName != "Jane Doe" {
+		t.Fatalf("expected captured name 'Jane Doe', got %q", m.DisplayName)
+	}
+
+	// (2) A plain add captures no name (roster will fall back to id/email).
+	if _, err := s.AddMember(ch.ID, "bob@x.com"); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	roster := s.ListMembers(ch.ID)
+	got := map[string]string{}
+	for _, mem := range roster {
+		got[mem.AccountID] = mem.DisplayName
+	}
+	if got["jane@x.com"] != "Jane Doe" {
+		t.Errorf("named member: want 'Jane Doe', got %q", got["jane@x.com"])
+	}
+	if got["bob@x.com"] != "" {
+		t.Errorf("unnamed member: want empty (email fallback applied by handler), got %q", got["bob@x.com"])
+	}
+
+	// (3) A member sets their own name on first join.
+	if err := s.SetDisplayName(ch.ID, "bob@x.com", "Bob Smith"); err != nil {
+		t.Fatalf("SetDisplayName: %v", err)
+	}
+	if name := findMemberName(s.ListMembers(ch.ID), "bob@x.com"); name != "Bob Smith" {
+		t.Errorf("after self-set: want 'Bob Smith', got %q", name)
+	}
+
+	// (4) Clearing the name reverts to empty (handler then falls back to email).
+	if err := s.SetDisplayName(ch.ID, "jane@x.com", ""); err != nil {
+		t.Fatalf("SetDisplayName clear: %v", err)
+	}
+	if name := findMemberName(s.ListMembers(ch.ID), "jane@x.com"); name != "" {
+		t.Errorf("after clear: want empty, got %q", name)
+	}
+
+	// (5) Setting a name on a non-member returns ErrMemberNotFound.
+	if err := s.SetDisplayName(ch.ID, "ghost@x.com", "Nobody"); err != spaces.ErrMemberNotFound {
+		t.Errorf("expected ErrMemberNotFound for non-member, got %v", err)
+	}
+
+	// (6) Idempotent re-invite with a name backfills a previously-empty name.
+	if _, err := s.AddMember(ch.ID, "carol@x.com"); err != nil {
+		t.Fatalf("AddMember carol: %v", err)
+	}
+	if _, err := s.AddMemberWithName(ch.ID, "carol@x.com", "Carol Jones"); err != nil {
+		t.Fatalf("re-invite carol with name: %v", err)
+	}
+	if name := findMemberName(s.ListMembers(ch.ID), "carol@x.com"); name != "Carol Jones" {
+		t.Errorf("backfilled name: want 'Carol Jones', got %q", name)
+	}
+}
+
+func findMemberName(members []*models.Membership, accountID string) string {
+	for _, m := range members {
+		if m.AccountID == accountID {
+			return m.DisplayName
+		}
+	}
+	return "<not-found>"
+}
+
+// TestMemberDisplayNamePersists confirms the captured name survives a store
+// reopen when backed by the durable SQLite persister.
+func TestMemberDisplayNamePersists(t *testing.T) {
+	p, err := spaces.NewSQLitePersister(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLitePersister: %v", err)
+	}
+	defer p.Close()
+
+	s, err := spaces.Open("node-A", p)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ch, _ := s.CreateChannel("team", models.ChannelTypePrivate, "owner")
+	if _, err := s.AddMemberWithName(ch.ID, "jane@x.com", "Jane Doe"); err != nil {
+		t.Fatalf("AddMemberWithName: %v", err)
+	}
+
+	// Reopen against the same persister; the name must reload.
+	s2, err := spaces.Open("node-A", p)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if name := findMemberName(s2.ListMembers(ch.ID), "jane@x.com"); name != "Jane Doe" {
+		t.Errorf("after reopen: want 'Jane Doe', got %q", name)
+	}
+}

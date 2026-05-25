@@ -18,6 +18,7 @@
 package spaces
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -28,6 +29,11 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrMemberNotFound is returned by SetDisplayName / SetMembershipName when the
+// (channelID, accountID) membership does not exist. Mirrors the cloud fleet
+// store's ErrNotMember sentinel for the MemberNamer seam.
+var ErrMemberNotFound = errors.New("spaces: membership not found")
 
 // -------------------------------------------------------------------------
 // Hybrid Logical Clock (simple wall+counter variant)
@@ -111,6 +117,9 @@ type Persister interface {
 	SaveMembership(m *models.Membership) error
 	ListMemberships(channelID string) ([]*models.Membership, error)
 	DeleteMembership(channelID, accountID string) error
+	// SetMembershipName updates the display_name for an existing membership.
+	// Returns ErrMemberNotFound when (channelID, accountID) does not exist.
+	SetMembershipName(channelID, accountID, displayName string) error
 
 	// Messages (append-only; edits/tombstones are upserts keyed by id)
 	SaveMessage(msg *models.Message) error
@@ -254,7 +263,22 @@ func (s *SpacesStore) ListChannels() []*models.Channel {
 // Membership management
 // -------------------------------------------------------------------------
 
+// AddMember adds accountID to channelID with no display name. The roster falls
+// back to the account id / email until a name is set (via SetDisplayName or by
+// inviting with a name through AddMemberWithName). Kept for back-compat.
 func (s *SpacesStore) AddMember(channelID, accountID string) (*models.Membership, error) {
+	return s.AddMemberWithName(channelID, accountID, "")
+}
+
+// AddMemberWithName adds accountID to channelID, capturing displayName at add
+// time. This is the invite/accept name-capture path: when an admin invites a
+// member by name, the name is applied here so ListMembers returns it instead of
+// the email fallback. An empty displayName behaves exactly like AddMember.
+//
+// If the member already exists (idempotent add) and a non-empty displayName is
+// supplied that differs from the stored one, the name is refreshed — so a later
+// invite/accept that carries a name can fill in a previously-empty name.
+func (s *SpacesStore) AddMemberWithName(channelID, accountID, displayName string) (*models.Membership, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -264,20 +288,59 @@ func (s *SpacesStore) AddMember(channelID, accountID string) (*models.Membership
 	if s.members[channelID] == nil {
 		s.members[channelID] = make(map[string]*models.Membership)
 	}
+	displayName = strings.TrimSpace(displayName)
 	if m, exists := s.members[channelID][accountID]; exists {
+		// Idempotent re-add. Backfill a name only when one is supplied and the
+		// stored name is empty (never clobber an existing name with "").
+		if displayName != "" && m.DisplayName != displayName {
+			updated := *m
+			updated.DisplayName = displayName
+			if err := s.persist.SetMembershipName(channelID, accountID, displayName); err != nil {
+				return nil, err
+			}
+			s.members[channelID][accountID] = &updated
+			return &updated, nil
+		}
 		return m, nil // idempotent
 	}
 	m := &models.Membership{
-		ID:        uuid.NewString(),
-		ChannelID: channelID,
-		AccountID: accountID,
-		JoinedAt:  time.Now(),
+		ID:          uuid.NewString(),
+		ChannelID:   channelID,
+		AccountID:   accountID,
+		DisplayName: displayName,
+		JoinedAt:    time.Now(),
 	}
 	if err := s.persist.SaveMembership(m); err != nil {
 		return nil, err
 	}
 	s.members[channelID][accountID] = m
 	return m, nil
+}
+
+// SetDisplayName sets the member-local display name for (channelID, accountID).
+// An empty name clears it (the roster then falls back to the account id/email).
+// Returns ErrMemberNotFound when the membership does not exist. This is the
+// office-local analogue of the cloud fleet store's MemberNamer.SetDisplayName
+// seam — used by the "your display name" profile control on first join.
+func (s *SpacesStore) SetDisplayName(channelID, accountID, displayName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byChannel, ok := s.members[channelID]
+	if !ok {
+		return ErrMemberNotFound
+	}
+	m, ok := byChannel[accountID]
+	if !ok {
+		return ErrMemberNotFound
+	}
+	displayName = strings.TrimSpace(displayName)
+	if err := s.persist.SetMembershipName(channelID, accountID, displayName); err != nil {
+		return err
+	}
+	updated := *m
+	updated.DisplayName = displayName
+	byChannel[accountID] = &updated
+	return nil
 }
 
 // IsMember reports whether accountID belongs to the given channel.
@@ -687,6 +750,18 @@ func (p *NullPersister) DeleteMembership(channelID, accountID string) error {
 	}
 	p.memberships[channelID] = out
 	return nil
+}
+
+func (p *NullPersister) SetMembershipName(channelID, accountID, displayName string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.memberships[channelID] {
+		if m.AccountID == accountID {
+			m.DisplayName = displayName
+			return nil
+		}
+	}
+	return ErrMemberNotFound
 }
 
 func (p *NullPersister) SaveMessage(msg *models.Message) error {

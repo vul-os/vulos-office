@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"vulos-office/backend/middleware"
@@ -159,8 +160,16 @@ func (h *SpacesHandler) CreateChannel(c *gin.Context) {
 	if len(req.Members) == 0 {
 		req.Members = []string{requester}
 	}
+	// Capture display names supplied at invite time (req.MemberNames maps an
+	// account id → the name the admin typed). Members absent from the map are
+	// added with an empty name and fall back to the account id/email in the
+	// roster until they set their own name.
 	for _, accountID := range req.Members {
-		_, _ = h.store.AddMember(ch.ID, accountID)
+		name := ""
+		if req.MemberNames != nil {
+			name = req.MemberNames[accountID]
+		}
+		_, _ = h.store.AddMemberWithName(ch.ID, accountID, name)
 	}
 	c.JSON(http.StatusCreated, ch)
 }
@@ -200,10 +209,48 @@ func (h *SpacesHandler) ListMembers(c *gin.Context) {
 		return
 	}
 	members := h.store.ListMembers(channelID)
-	if members == nil {
-		members = []*models.Membership{}
+	out := make([]*models.Membership, 0, len(members))
+	for _, m := range members {
+		// Email fallback: when no display name was captured at invite/join time,
+		// surface the account id (which is the email/handle under this app's
+		// email+password identity) so the roster never renders a blank name. The
+		// stored membership keeps the empty name — this fallback is response-only.
+		mm := *m
+		if mm.DisplayName == "" {
+			mm.DisplayName = mm.AccountID
+		}
+		out = append(out, &mm)
 	}
-	c.JSON(http.StatusOK, members)
+	c.JSON(http.StatusOK, out)
+}
+
+// SetMyDisplayName PUT /api/spaces/channels/:channelId/members/me/name
+//
+// Lets the authenticated member set their own display name on first join (the
+// "your display name" profile control). Body: { display_name: string }. An
+// empty name clears it (roster falls back to the account id). This is the
+// office-local analogue of calling the cloud fleet MemberNamer.SetDisplayName
+// seam. The member must already belong to the channel.
+func (h *SpacesHandler) SetMyDisplayName(c *gin.Context) {
+	channelID := c.Param("channelId")
+	accountID := requesterID(c)
+	if !h.requireChannelAccess(c, channelID, accountID) {
+		return
+	}
+	var req models.SetDisplayNameRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.store.SetDisplayName(channelID, accountID, req.DisplayName); err != nil {
+		if err == spaces.ErrMemberNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not a member of this channel"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "display_name": strings.TrimSpace(req.DisplayName)})
 }
 
 // -------------------------------------------------------------------------

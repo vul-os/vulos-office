@@ -106,11 +106,28 @@ export const api = {
 
   // OFFICE-60/61: Vulos Spaces API
   spacesListChannels: () => request('/spaces/channels'),
-  spacesCreateChannel: (name, type, members = []) =>
-    request('/spaces/channels', { method: 'POST', body: JSON.stringify({ name, type, members }) }),
+  // memberNames optionally maps an invited account id → display name so a name
+  // typed at invite time is captured on the membership (NAME-CAPTURE-01).
+  spacesCreateChannel: (name, type, members = [], memberNames = null) =>
+    request('/spaces/channels', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        type,
+        members,
+        ...(memberNames ? { member_names: memberNames } : {}),
+      }),
+    }),
   spacesJoinChannel: (channelId) =>
     request(`/spaces/channels/${channelId}/join`, { method: 'POST' }),
   spacesListMembers: (channelId) => request(`/spaces/channels/${channelId}/members`),
+  // Set the calling member's own display name in a channel ("your display name"
+  // profile control). Empty string clears it (roster falls back to account id).
+  spacesSetMyName: (channelId, displayName) =>
+    request(`/spaces/channels/${channelId}/members/me/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ display_name: displayName }),
+    }),
   spacesListMessages: (channelId) => request(`/spaces/channels/${channelId}/messages`),
   spacesSendMessage: (channelId, body, threadParent = '') =>
     request(`/spaces/channels/${channelId}/messages`, {
