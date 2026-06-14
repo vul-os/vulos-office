@@ -16,17 +16,21 @@ const (
 // A meeting maps 1:1 to a fabric session (SessionID) which CallView uses.
 // When ScheduledAt is zero the room is a permanent / instant room.
 type Meeting struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title"`
-	SessionID   string        `json:"session_id"` // fabric session / room id fed into createCall
-	HostVulos   string        `json:"host_vulos"`
-	Invitees    []string      `json:"invitees"`   // Vulos account addresses (@vulos.org)
-	ScheduledAt *time.Time    `json:"scheduled_at,omitempty"`
-	DurationMin int           `json:"duration_min,omitempty"` // 0 = open-ended
-	Status      MeetingStatus `json:"status"`
-	JoinLink    string        `json:"join_link"` // /room/<session_id>
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
+	ID               string        `json:"id"`
+	Title            string        `json:"title"`
+	SessionID        string        `json:"session_id"` // fabric session / room id fed into createCall
+	HostVulos        string        `json:"host_vulos"`
+	Invitees         []string      `json:"invitees"`             // Vulos account addresses (@vulos.org)
+	ScheduledAt      *time.Time    `json:"scheduled_at,omitempty"`
+	DurationMin      int           `json:"duration_min,omitempty"` // 0 = open-ended
+	Status           MeetingStatus `json:"status"`
+	JoinLink         string        `json:"join_link"` // /meet/<id>
+	OrganizerID      string        `json:"organizer_id,omitempty"`
+	LobbyRequired    bool          `json:"lobby_required"`
+	SigninRequired   bool          `json:"signin_required"`
+	RecordingEnabled bool          `json:"recording_enabled"` // stub; always false
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 // MeetingParticipant tracks who has joined a live room (ephemeral, in-memory only).
@@ -39,11 +43,14 @@ type MeetingParticipant struct {
 // ---- request / response bodies ----
 
 type CreateMeetingRequest struct {
-	Title       string     `json:"title" binding:"required"`
-	HostVulos   string     `json:"host_vulos"`
-	Invitees    []string   `json:"invitees"`
-	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
-	DurationMin int        `json:"duration_min,omitempty"`
+	Title            string     `json:"title" binding:"required"`
+	HostVulos        string     `json:"host_vulos"`
+	Invitees         []string   `json:"invitees"`
+	ScheduledAt      *time.Time `json:"scheduled_at,omitempty"`
+	DurationMin      int        `json:"duration_min,omitempty"`
+	LobbyRequired    bool       `json:"lobby_required"`
+	SigninRequired   bool       `json:"signin_required"`
+	OrganizerID      string     `json:"organizer_id,omitempty"`
 }
 
 type UpdateMeetingRequest struct {

@@ -220,23 +220,20 @@ func main() {
 	slidesExportHandler := handlers.NewSlidesExportHandler(store)
 	protected.GET("/slides/:id/export", slidesExportHandler.Export)
 
-	// OFFICE-65: scheduled meeting rooms.
+	// OFFICE-65 + OFFICE-MEET: unified meeting rooms with lobby, signed tokens,
+	// organizer-only controls. The MeetingHandler is the single source of truth;
+	// MeetJoinHandler reads meeting metadata (LobbyRequired, OrganizerID) from
+	// the same durable Storage instead of an in-memory map.
 	meetingHandler := handlers.NewMeetingHandler(store)
 	protected.POST("/meetings", meetingHandler.Create)
 	protected.GET("/meetings", meetingHandler.List)
 	protected.GET("/meetings/:id", meetingHandler.Get)
+	protected.PUT("/meetings/:id", meetingHandler.Update)
 	protected.DELETE("/meetings/:id", meetingHandler.Delete)
 	// Join is public — external invitees follow a bare link with no Vulos account.
 	api.GET("/meetings/:id/join", meetingHandler.Join)
 
-	// OFFICE-MEET: Google Meet parity — scheduled meetings, signed join tokens, lobby.
-	meetScheduleHandler := handlers.NewMeetScheduleHandler(store)
-	protected.POST("/meeting/schedule", meetScheduleHandler.Schedule)
-	protected.GET("/meeting/schedule", meetScheduleHandler.List)
-	protected.GET("/meeting/schedule/:id", meetScheduleHandler.Get)
-	protected.DELETE("/meeting/schedule/:id", meetScheduleHandler.Delete)
-
-	meetJoinHandler := handlers.NewMeetJoinHandler(meetScheduleHandler)
+	meetJoinHandler := handlers.NewMeetJoinHandler(store)
 	// Token issuance: semi-public (anon token if no auth; signed-in token if auth present).
 	api.POST("/meet/:roomId/token", meetJoinHandler.IssueToken)
 	// Lobby endpoints: token required in header.

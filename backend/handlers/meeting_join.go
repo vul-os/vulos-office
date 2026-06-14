@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	meetingsvc "vulos-office/backend/services/meeting"
+	"vulos-office/backend/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,11 +39,25 @@ func validRoomID(roomID string) bool {
 
 // MeetJoinHandler issues join tokens and manages lobby state.
 type MeetJoinHandler struct {
-	scheduleHandler *MeetScheduleHandler
+	store storage.Storage
 }
 
-func NewMeetJoinHandler(sh *MeetScheduleHandler) *MeetJoinHandler {
-	return &MeetJoinHandler{scheduleHandler: sh}
+func NewMeetJoinHandler(store storage.Storage) *MeetJoinHandler {
+	return &MeetJoinHandler{store: store}
+}
+
+// isOrganizer checks whether callerID is the organizer of the given room.
+// It looks up the meeting in durable storage by roomID (the meeting's ID field
+// is the same 22-char base64 room ID used in /api/meet/:roomId/* routes).
+func (h *MeetJoinHandler) isOrganizer(roomID, callerID string) bool {
+	if callerID == "" {
+		return false
+	}
+	m, err := h.store.GetMeeting(roomID)
+	if err != nil || m == nil {
+		return false
+	}
+	return m.OrganizerID == callerID
 }
 
 // POST /api/meet/:roomId/token
@@ -70,22 +85,20 @@ func (h *MeetJoinHandler) IssueToken(c *gin.Context) {
 
 	accountID := c.GetString("userID")
 
-	// Validate room exists
-	unlock := h.scheduleHandler.lock()
-	meeting, exists := h.scheduleHandler.meetings[roomID]
+	// Validate room exists and read access control flags.
 	lobbyRequired := false
 	signinRequired := false
-	if exists {
-		lobbyRequired = meeting.LobbyRequired
-		signinRequired = meeting.SigninRequired
+	m, err := h.store.GetMeeting(roomID)
+	if err == nil && m != nil {
+		lobbyRequired = m.LobbyRequired
+		signinRequired = m.SigninRequired
 	}
-	unlock()
 
 	// signin_required: anonymous join denied
 	if signinRequired && accountID == "" {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error":             "this meeting requires a signed-in account",
-			"signin_required":   true,
+			"error":           "this meeting requires a signed-in account",
+			"signin_required": true,
 		})
 		return
 	}
@@ -279,18 +292,4 @@ func (h *MeetJoinHandler) Deny(c *gin.Context) {
 		AcceptedBy: callerID,
 	})
 	c.JSON(http.StatusOK, gin.H{"denied": true})
-}
-
-// isOrganizer checks whether callerID is the organizer of the given room.
-func (h *MeetJoinHandler) isOrganizer(roomID, callerID string) bool {
-	if h.scheduleHandler == nil {
-		return false
-	}
-	unlock := h.scheduleHandler.lock()
-	m, exists := h.scheduleHandler.meetings[roomID]
-	unlock()
-	if !exists {
-		return false
-	}
-	return m.OrganizerID == callerID
 }

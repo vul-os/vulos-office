@@ -4,6 +4,7 @@
 //   POST   /api/meetings              — create a meeting room / schedule
 //   GET    /api/meetings              — list all meetings
 //   GET    /api/meetings/:id          — get a single meeting
+//   PUT    /api/meetings/:id          — update a meeting (organizer only)
 //   DELETE /api/meetings/:id          — delete a meeting
 //
 // A join URL is also exposed publicly so external invitees can navigate
@@ -13,13 +14,11 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	meetingsvc "vulos-office/backend/services/meeting"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -35,15 +34,6 @@ func NewMeetingHandler(store storage.Storage) *MeetingHandler {
 	return &MeetingHandler{store: store}
 }
 
-// newID generates a short random hex id.
-func newMeetingID() (string, error) {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
 // POST /api/meetings
 func (h *MeetingHandler) Create(c *gin.Context) {
 	var req models.CreateMeetingRequest
@@ -52,40 +42,60 @@ func (h *MeetingHandler) Create(c *gin.Context) {
 		return
 	}
 
-	id, err := newMeetingID()
+	// Use the same 22-char URL-safe base64 room ID that the join/lobby system
+	// expects. This means meetings/:id == the roomId in /api/meet/:roomId/token.
+	roomID, err := meetingsvc.NewRoomID()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "id generation failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "room id generation failed"})
 		return
 	}
 
 	// The session_id is the fabric session key: callers join via createCall({sessionId})
-	// in rtc.js — we derive it deterministically from the meeting id so the join link is
-	// stable across server restarts.
-	sessionID := "meeting:" + id
-
-	joinLink := fmt.Sprintf("/room/%s", sessionID)
+	// in rtc.js. We use /meet/<roomID> as the join link (matching token/lobby routes).
+	sessionID := "meeting:" + roomID
+	joinLink := "/meet/" + roomID
 
 	invitees := req.Invitees
 	if invitees == nil {
 		invitees = []string{}
 	}
 
+	organizerID := req.OrganizerID
+	if organizerID == "" {
+		organizerID = c.GetString("userID")
+	}
+	if organizerID == "" {
+		organizerID = c.ClientIP()
+	}
+
 	m := &models.Meeting{
-		ID:          id,
-		Title:       strings.TrimSpace(req.Title),
-		SessionID:   sessionID,
-		HostVulos:  strings.TrimSpace(req.HostVulos),
-		Invitees:    invitees,
-		ScheduledAt: req.ScheduledAt,
-		DurationMin: req.DurationMin,
-		Status:      models.MeetingStatusScheduled,
-		JoinLink:    joinLink,
+		ID:               roomID,
+		Title:            strings.TrimSpace(req.Title),
+		SessionID:        sessionID,
+		HostVulos:        strings.TrimSpace(req.HostVulos),
+		Invitees:         invitees,
+		ScheduledAt:      req.ScheduledAt,
+		DurationMin:      req.DurationMin,
+		Status:           models.MeetingStatusScheduled,
+		JoinLink:         joinLink,
+		OrganizerID:      organizerID,
+		LobbyRequired:    req.LobbyRequired,
+		SigninRequired:   req.SigninRequired,
+		RecordingEnabled: false, // stub — always false
 	}
 
 	if err := h.store.CreateMeeting(m); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	meetingsvc.GlobalAuditLog().Append(&meetingsvc.JoinAuditEvent{
+		RoomID:    roomID,
+		AccountID: organizerID,
+		IP:        c.ClientIP(),
+		Action:    "scheduled",
+		At:        m.CreatedAt,
+	})
 
 	c.JSON(http.StatusCreated, m)
 }
@@ -114,13 +124,84 @@ func (h *MeetingHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
+// PUT /api/meetings/:id  (organizer only)
+func (h *MeetingHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	callerID := c.GetString("userID")
+
+	m, err := h.store.GetMeeting(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "meeting not found"})
+		return
+	}
+
+	if callerID != "" && m.OrganizerID != "" && m.OrganizerID != callerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the organizer may update this meeting"})
+		return
+	}
+
+	var req models.UpdateMeetingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Title != "" {
+		m.Title = strings.TrimSpace(req.Title)
+	}
+	if req.Invitees != nil {
+		m.Invitees = req.Invitees
+	}
+	if req.ScheduledAt != nil {
+		m.ScheduledAt = req.ScheduledAt
+	}
+	if req.DurationMin > 0 {
+		m.DurationMin = req.DurationMin
+	}
+	if req.Status != "" {
+		m.Status = models.MeetingStatus(req.Status)
+	}
+	m.UpdatedAt = time.Now()
+
+	if err := h.store.UpdateMeeting(m); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, m)
+}
+
 // DELETE /api/meetings/:id
 func (h *MeetingHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
+	callerID := c.GetString("userID")
+
+	m, err := h.store.GetMeeting(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "meeting not found"})
+		return
+	}
+
+	// Organizer-only enforcement: if both callerID and OrganizerID are set,
+	// they must match. An anonymous/unauthenticated caller (callerID=="") is
+	// allowed when OrganizerID is also empty (e.g. test environments).
+	if callerID != "" && m.OrganizerID != "" && m.OrganizerID != callerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the organizer may delete this meeting"})
+		return
+	}
+
 	if err := h.store.DeleteMeeting(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "meeting not found"})
 		return
 	}
+
+	meetingsvc.GlobalAuditLog().Append(&meetingsvc.JoinAuditEvent{
+		RoomID:    id,
+		AccountID: callerID,
+		IP:        c.ClientIP(),
+		Action:    "deleted",
+	})
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

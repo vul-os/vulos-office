@@ -346,38 +346,11 @@ function CreateModal({ open, onCreated, onClose }) {
         duration_min: form.duration_min || 0,
         lobby_required: form.lobby_required,
         signin_required: form.signin_required,
-        recording_enabled: false, // always false — stub
       }
       if (form.scheduled_at) {
         body.scheduled_at = new Date(form.scheduled_at).toISOString()
-        body.start_unix = Math.floor(new Date(form.scheduled_at).getTime() / 1000)
       }
-      // POST to new Meet schedule API first, fall back to old /meetings endpoint
-      let m
-      try {
-        const schedRes = await apiFetch('/api/meeting/schedule', {
-          method: 'POST',
-          body: JSON.stringify({
-            title: body.title,
-            start_unix: body.start_unix || Math.floor(Date.now() / 1000),
-            duration_min: body.duration_min,
-            invitees: body.invitees,
-            lobby_required: body.lobby_required,
-            signin_required: body.signin_required,
-          }),
-        })
-        // Merge into the old Meeting shape for the card list
-        m = {
-          ...schedRes.meeting,
-          session_id: `meeting:${schedRes.meeting?.room_id || schedRes.meeting?.id}`,
-          join_link: schedRes.join_link,
-          host_vulos: body.host_vulos,
-          invitees: body.invitees,
-        }
-      } catch (_) {
-        // Fall back to legacy endpoint if new one not wired
-        m = await apiFetch(API, { method: 'POST', body: JSON.stringify(body) })
-      }
+      const m = await apiFetch(API, { method: 'POST', body: JSON.stringify(body) })
       onCreated(m)
       setForm({
         title: '', host_vulos: '', invitees_raw: '', scheduled_at: '', duration_min: 60,
