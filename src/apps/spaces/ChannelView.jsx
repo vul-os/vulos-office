@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   Send, Hash, Lock, AtSign, X, MessageSquare, ChevronRight, Search,
-  Pin, Bell, Settings, AlignLeft, Eye,
+  Pin, Bell, UserPlus, AlignLeft, Eye,
 } from 'lucide-react'
 import MessageList from './MessageList.jsx'
 import MentionPicker, { parseMentionQuery, insertMention } from './MentionPicker.jsx'
@@ -31,7 +31,7 @@ import RichMessage from './RichMessage.jsx'
 import { api } from '../../lib/api.js'
 import { getDefaultStore, STATE_DELETED } from '../../lib/crdt/messages.js'
 import { PresenceDot } from '../../components/PresenceBar.jsx'
-import { IconButton, Topbar } from '../../components/ui'
+import { Button, IconButton, Input, Modal, Topbar } from '../../components/ui'
 
 const POLL_INTERVAL_MS = 3000
 const AUTO_AWAY_MS = 10 * 60 * 1000 // 10 min
@@ -179,6 +179,169 @@ function ThreadPanel({ root, replies = [], onSend, onClose, currentUser }) {
   )
 }
 
+// ---- InviteMemberModal — invite a member to a private channel ----------------
+
+/**
+ * InviteMemberModal — shown in the channel header for private channels.
+ * Any existing member may invite: the backend enforces membership authz on
+ * POST /api/spaces/channels/:channelId/members.
+ *
+ * The roster (org members from presence) is used to offer autocomplete
+ * suggestions. The user may also type any account id directly.
+ */
+function InviteMemberModal({ open, onClose, channelId, roster = [], onInvited }) {
+  const [accountId, setAccountId]   = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState(null)
+  const [success, setSuccess]       = useState(null)
+  const [suggestion, setSuggestion] = useState(null)
+
+  // When the user types in the account id field, try to find a matching roster
+  // entry and pre-fill the display name.
+  function handleAccountIdChange(e) {
+    const val = e.target.value
+    setAccountId(val)
+    setError(null)
+    setSuccess(null)
+    const match = roster.find(
+      (p) => p.accountId === val.trim() || p.displayName?.toLowerCase() === val.trim().toLowerCase()
+    )
+    setSuggestion(match || null)
+    if (match && !displayName) setDisplayName(match.displayName || '')
+  }
+
+  function applySuggestion(peer) {
+    setAccountId(peer.accountId)
+    setDisplayName(peer.displayName || '')
+    setSuggestion(null)
+  }
+
+  async function submit(e) {
+    e.preventDefault()
+    const id = accountId.trim()
+    if (!id) return
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      await api.spacesInviteMember(channelId, id, displayName.trim())
+      setSuccess(`${displayName.trim() || id} added to the channel.`)
+      setAccountId('')
+      setDisplayName('')
+      setSuggestion(null)
+      onInvited?.()
+    } catch (err) {
+      // 409 = already a member; surface a friendly message.
+      if (err.message?.includes('409') || err.message?.includes('already')) {
+        setError(`${id} is already a member of this channel.`)
+      } else {
+        setError(err.message || 'Invite failed. Please try again.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Reset state when the modal is closed.
+  function handleClose() {
+    setAccountId('')
+    setDisplayName('')
+    setError(null)
+    setSuccess(null)
+    setSuggestion(null)
+    onClose()
+  }
+
+  // Roster suggestions: show peers not already known by exact accountId match
+  // (we don't have the full member list here so just show all roster entries as
+  // candidates, filtered by the current input).
+  const rosterSuggestions = accountId.trim().length > 0
+    ? roster.filter(
+        (p) =>
+          (p.accountId?.toLowerCase().includes(accountId.trim().toLowerCase()) ||
+           p.displayName?.toLowerCase().includes(accountId.trim().toLowerCase())) &&
+          p.accountId !== accountId.trim()
+      ).slice(0, 5)
+    : []
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Add members">
+      <form onSubmit={submit}>
+        <Modal.Body className="space-y-4">
+          {error && (
+            <p role="alert" className="text-xs text-danger bg-danger-bg rounded-sm px-3 py-2">
+              {error}
+            </p>
+          )}
+          {success && (
+            <p role="status" className="text-xs text-success bg-success-bg rounded-sm px-3 py-2">
+              {success}
+            </p>
+          )}
+
+          <div>
+            <Input
+              label="Account ID"
+              placeholder="e.g. alice or alice@vulos.org"
+              value={accountId}
+              onChange={handleAccountIdChange}
+              leading={<AtSign size={13} />}
+              autoFocus
+            />
+            {/* Org-roster autocomplete suggestions */}
+            {rosterSuggestions.length > 0 && (
+              <ul
+                role="listbox"
+                aria-label="Suggested members"
+                className="mt-1 border border-line rounded-md bg-paper shadow-e2 overflow-hidden"
+              >
+                {rosterSuggestions.map((p) => (
+                  <li key={p.accountId}>
+                    <button
+                      type="button"
+                      onClick={() => applySuggestion(p)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent-tint transition-colors"
+                    >
+                      <PresenceDot status={p.status} size={7} />
+                      <span className="font-medium text-ink tracking-tightish">
+                        {p.displayName || p.accountId}
+                      </span>
+                      {p.displayName && (
+                        <span className="text-ink-faint text-2xs ml-auto">{p.accountId}</span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <Input
+            label="Their name (optional)"
+            placeholder="e.g. Jane Doe"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            leading={<UserPlus size={13} />}
+          />
+
+          <p className="text-2xs text-ink-faint leading-relaxed">
+            They will be added immediately and can read the channel's history.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" type="button" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={loading || !accountId.trim()}>
+            {loading ? 'Adding…' : 'Add to channel'}
+          </Button>
+        </Modal.Footer>
+      </form>
+    </Modal>
+  )
+}
+
 // ---- ChannelView — main -------------------------------------------------------
 
 export default function ChannelView({ channel, currentUser, roster = [], onStatusChange }) {
@@ -198,6 +361,7 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
   const [pendingFiles, setPendingFiles] = useState([])
   const [previewMode, setPreviewMode] = useState(false)
   const [members, setMembers] = useState([])
+  const [showInvite, setShowInvite] = useState(false)
   // @mention
   const [mentionQuery, setMentionQuery] = useState(null) // { query, atStart } | null
 
@@ -599,6 +763,19 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
                   <Pin size={14} />
                 </button>
 
+                {/* Invite / Add members — private channels only */}
+                {channel.type === 'private' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowInvite(true)}
+                    className="p-1.5 rounded-sm transition-colors text-ink-faint hover:text-ink hover:bg-accent-tint"
+                    title="Add members"
+                    aria-label="Add members to channel"
+                  >
+                    <UserPlus size={14} />
+                  </button>
+                )}
+
                 {/* Notifications */}
                 <div className="relative">
                   <button
@@ -823,6 +1000,15 @@ export default function ChannelView({ channel, currentUser, roster = [], onStatu
           onClose={() => setShowPinned(false)}
         />
       )}
+
+      {/* Invite / Add members modal — private channels */}
+      <InviteMemberModal
+        open={showInvite}
+        onClose={() => setShowInvite(false)}
+        channelId={channel.id}
+        roster={displayRoster}
+        onInvited={loadMembers}
+      />
     </div>
   )
 }

@@ -9,6 +9,17 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased] — 2026-06-15
 
 ### Added
+- **CHANNEL-INVITE-UI**: `InviteMemberModal` in the Spaces channel header (private channels only).
+  - `UserPlus` icon button appears in the `ChannelView` topbar actions for `type === 'private'` channels.
+  - Modal lets any channel member enter an account id and optional display name, calls `spacesInviteMember`, shows 201 success / 409 "already a member" / generic error, refreshes the member list on success.
+  - Org-roster autocomplete: typing in the account-id field filters live-presence roster entries and clicking a suggestion fills both fields.
+  - Consistent with existing `CreateChannelModal` / `NewDMModal` design (shared Modal + Button + Input primitives, warm-paper tokens).
+  - Backend test: `backend/handlers/spaces_invite_test.go` — 4 cases: happy-path (201 + roster reflects name), duplicate (409), non-member denied (403), no-display-name fallback.
+- **MODAL-FOCUS-TRAP**: `useFocusTrap` hook added to `src/components/ui/Modal.jsx` (~80 lines, zero external deps).
+  - On open: saves the previously-focused element, moves focus to the first focusable child via `requestAnimationFrame`.
+  - Tab/Shift-Tab: cycles within the dialog's focusable elements; never escapes to the page.
+  - On close: restores focus to the element that triggered the modal.
+  - Applied to the shared `Modal` component; all existing modals (CreateChannel, NewDM, DisplayName, InviteMember, meeting create, etc.) benefit automatically.
 - **CONTACTS-CRUD**: Individual contact REST CRUD (`GET/POST/PUT/DELETE /api/contacts`, `/api/contacts/:uid`).
   - Account isolation via `callerScope` — non-owners get 404, no existence leak.
   - `ContactsApp.jsx` uses REST API as primary when `VITE_CARDDAV_BASE` is not set; falls back to CardDAV only when explicitly configured.
