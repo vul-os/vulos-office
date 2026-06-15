@@ -23,11 +23,12 @@ type LocalStorage struct {
 	repliesDir     string
 	sealedDir      string // OFFICE-46: sealed PDF store
 	suggestionsDir string // OFFICE-27: track-changes sidecar
+	recordingsDir  string // meeting recordings metadata
 }
 
 func NewLocalStorage(cfg *config.Config) (*LocalStorage, error) {
 	dir := cfg.Server.DataDir
-	for _, sub := range []string{"", "versions", "envelopes", "signers", "audit", "comments", "replies", "sealed", "suggestions"} {
+	for _, sub := range []string{"", "versions", "envelopes", "signers", "audit", "comments", "replies", "sealed", "suggestions", "recordings"} {
 		d := filepath.Join(dir, sub)
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", d, err)
@@ -43,6 +44,7 @@ func NewLocalStorage(cfg *config.Config) (*LocalStorage, error) {
 		repliesDir:     filepath.Join(dir, "replies"),
 		sealedDir:      filepath.Join(dir, "sealed"),
 		suggestionsDir: filepath.Join(dir, "suggestions"),
+		recordingsDir:  filepath.Join(dir, "recordings"),
 	}, nil
 }
 
@@ -746,6 +748,81 @@ func (s *LocalStorage) DeleteMeeting(id string) error {
 	if err := os.Remove(s.meetingPath(id)); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("meeting not found")
+		}
+		return err
+	}
+	return nil
+}
+
+// ============================================================
+// Meeting Recordings — local JSON metadata store
+// ============================================================
+// Blob bytes (fallback when no S3) are stored by the handler in ./data/recordings/<id>.webm.
+// This layer stores only the MeetingRecording metadata JSON.
+
+func (s *LocalStorage) recordingPath(id string) string {
+	return filepath.Join(s.recordingsDir, id+".json")
+}
+
+func (s *LocalStorage) CreateRecording(r *models.MeetingRecording) error {
+	if err := os.MkdirAll(s.recordingsDir, 0755); err != nil {
+		return err
+	}
+	r.CreatedAt = time.Now()
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.recordingPath(r.ID), data, 0644)
+}
+
+func (s *LocalStorage) GetRecording(id string) (*models.MeetingRecording, error) {
+	data, err := os.ReadFile(s.recordingPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("recording not found")
+		}
+		return nil, err
+	}
+	var r models.MeetingRecording
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (s *LocalStorage) ListRecordings(meetingID string) ([]*models.MeetingRecording, error) {
+	entries, err := os.ReadDir(s.recordingsDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []*models.MeetingRecording
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		id := entry.Name()[:len(entry.Name())-5]
+		r, err := s.GetRecording(id)
+		if err != nil {
+			continue
+		}
+		if r.MeetingID == meetingID {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+func (s *LocalStorage) DeleteRecording(id string) error {
+	if err := os.Remove(s.recordingPath(id)); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("recording not found")
 		}
 		return err
 	}

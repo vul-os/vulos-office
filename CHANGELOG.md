@@ -8,6 +8,29 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] — 2026-06-15
 
+### Added
+- **MEET-RECORDING**: Real client-side meeting recording (MediaRecorder on local stream).
+  - `RecordingControl` replaces `RecordingStub` — consent banner, start/stop, pulsing red indicator.
+  - After stop, WebM blob uploads to `/api/meet/:roomId/recordings`; falls back to local
+    `data/recordings/` when no S3 bucket is configured.
+  - Backend: `POST/GET/GET/:rid/DELETE` recording endpoints; `MeetingRecording` model;
+    `CreateRecording/ListRecordings/GetRecording/DeleteRecording` in Storage interface +
+    LocalStorage (JSON files) + PostgresStorage (`meeting_recordings` table).
+  - `recording_enabled` on meetings now settable (was hardcoded false); toggle wired in
+    the create-meeting modal.
+  - `RecordingsList` component lets organisers download past recordings from the call UI.
+- **PPTX-IMPORT**: Real `.pptx` import via JSZip + OOXML XML parsing.
+  - `importFile.js` extracts `ppt/slides/slideN.xml`, maps shape text to slide objects,
+    builds a slides-editor-compatible content model (`{ slides, theme, transition }`).
+  - Works for both drag-and-drop (`importFile`) and backend-served local files (`importFromUrl`).
+  - `jszip ^3.10.1` added as a dependency.
+- **DEEP-LINK ROUTING**: Wired in `App.jsx`.
+  - `/meet/:meetId` route resolves a meeting ID → session → `/room/:sessionId` (works
+    both public-prefix and authenticated).
+  - `web+vulosoffice://` protocol handler registered on mount via
+    `navigator.registerProtocolHandler`; `?goto=<path>` query param parsed and navigated on load.
+  - `/pdf/:id` route added (was missing from the main monolithic app router).
+
 ### Fixed
 - FIX-OFFICE-STORE-WIRE-01: Wire OrgBucketClient into file CRUD, sealed PDFs — blob sync to S3/Tigris when configured; SQLite-only fallback when not
 - OFFICE-27 (Postgres): Implement CreateSuggestion/GetSuggestion/UpdateSuggestion/DeleteSuggestion in PostgresStorage
@@ -16,8 +39,7 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - P1-5: Wire optional SMTP reminder emails (VULOS_SMTP_* env); honest "no mailer configured" when absent
 
 ### Changed
-- P2-6: Recording UI label updated to "Recording is not yet available in this release"
-- P2-7: Call cap: render capacity warning at ≥6 participants; MEET-SPACES-01 clarified: P2P mesh only, no SFU/LiveKit
+- P2-7: Call cap: render capacity warning at ≥6 participants; MEET-SPACES-01 clarified: P2P mesh only, no SFU/LiveKit (intentional product limit — no change)
 - P2-8: Replace alert() in importFile.js with thrown errors (caller handles UI feedback)
 
 ---

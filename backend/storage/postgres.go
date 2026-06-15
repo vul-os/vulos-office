@@ -745,6 +745,88 @@ func (s *PostgresStorage) DeleteMeeting(id string) error {
 }
 
 // ============================================================
+// Meeting Recordings — Postgres implementations
+// ============================================================
+
+func (s *PostgresStorage) migrateRecordingsSchema() {
+	_, _ = s.pool.Exec(context.Background(), `
+		CREATE TABLE IF NOT EXISTS meeting_recordings (
+			id           TEXT PRIMARY KEY,
+			meeting_id   TEXT NOT NULL,
+			room_id      TEXT NOT NULL,
+			organizer_id TEXT NOT NULL DEFAULT '',
+			account_id   TEXT NOT NULL DEFAULT '',
+			file_name    TEXT NOT NULL DEFAULT '',
+			size_bytes   BIGINT NOT NULL DEFAULT 0,
+			duration_sec INT NOT NULL DEFAULT 0,
+			bucket_key   TEXT NOT NULL DEFAULT '',
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS meeting_recordings_meeting ON meeting_recordings (meeting_id, created_at DESC);
+	`)
+}
+
+func (s *PostgresStorage) CreateRecording(r *models.MeetingRecording) error {
+	s.migrateRecordingsSchema()
+	r.CreatedAt = time.Now()
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO meeting_recordings
+		 (id, meeting_id, room_id, organizer_id, account_id, file_name, size_bytes, duration_sec, bucket_key, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		r.ID, r.MeetingID, r.RoomID, r.OrganizerID, r.AccountID,
+		r.FileName, r.SizeBytes, r.DurationSec, r.BucketKey, r.CreatedAt,
+	)
+	return err
+}
+
+func (s *PostgresStorage) GetRecording(id string) (*models.MeetingRecording, error) {
+	s.migrateRecordingsSchema()
+	var r models.MeetingRecording
+	err := s.pool.QueryRow(context.Background(),
+		`SELECT id, meeting_id, room_id, organizer_id, account_id, file_name, size_bytes, duration_sec, bucket_key, created_at
+		 FROM meeting_recordings WHERE id=$1`, id,
+	).Scan(&r.ID, &r.MeetingID, &r.RoomID, &r.OrganizerID, &r.AccountID,
+		&r.FileName, &r.SizeBytes, &r.DurationSec, &r.BucketKey, &r.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("recording not found")
+	}
+	return &r, nil
+}
+
+func (s *PostgresStorage) ListRecordings(meetingID string) ([]*models.MeetingRecording, error) {
+	s.migrateRecordingsSchema()
+	rows, err := s.pool.Query(context.Background(),
+		`SELECT id, meeting_id, room_id, organizer_id, account_id, file_name, size_bytes, duration_sec, bucket_key, created_at
+		 FROM meeting_recordings WHERE meeting_id=$1 ORDER BY created_at DESC`, meetingID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*models.MeetingRecording
+	for rows.Next() {
+		var r models.MeetingRecording
+		if err := rows.Scan(&r.ID, &r.MeetingID, &r.RoomID, &r.OrganizerID, &r.AccountID,
+			&r.FileName, &r.SizeBytes, &r.DurationSec, &r.BucketKey, &r.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, &r)
+	}
+	if out == nil {
+		out = []*models.MeetingRecording{}
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStorage) DeleteRecording(id string) error {
+	s.migrateRecordingsSchema()
+	_, err := s.pool.Exec(context.Background(),
+		`DELETE FROM meeting_recordings WHERE id=$1`, id,
+	)
+	return err
+}
+
+// ============================================================
 // Suggestions (OFFICE-27) — Postgres implementations
 // ============================================================
 

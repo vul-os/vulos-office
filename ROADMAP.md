@@ -53,7 +53,8 @@ trustworthy.
 - **PDF:** render, page thumbnails, zoom; place text, freehand draw, and
   signature/initial annotations; flatten and download via pdf-lib.
 - **Import / Export:** open from URL or local file; export `.docx`, `.xlsx`,
-  `.pptx`, `.pdf`, Markdown.
+  `.pptx`, `.pdf`, Markdown. Import `.pptx` via OOXML/JSZip (text + slide
+  structure extracted from `ppt/slides/*.xml`).
 - **Storage:** local JSON store; PostgreSQL backend for multi-user installs;
   optional password auth (JWT) off by default.
 - **Single binary + PWA:** the Go binary embeds the built frontend; installable
@@ -228,6 +229,10 @@ paying for Slack and Zoom.
 - **Scheduled meetings / meeting rooms:** named, persistent or scheduled rooms
   (the Google-Meet equivalent); join link; lobby; per-room presence; calendar-
   style scheduling.
+- **Meeting recording:** client-side MediaRecorder captures the local stream,
+  uploads as WebM to the org bucket (or local fallback when no bucket configured);
+  consent banner shown before recording starts; organiser can list and download
+  past recordings; `recording_enabled` flag settable per meeting.
 - **In-call essentials:** mute/camera controls, active-speaker, participant
   roster, basic in-call chat tied to the channel/thread.
 - **Fabric/relay integration:** signaling (offer/answer/ICE) and TURN credential

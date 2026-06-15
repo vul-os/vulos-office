@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import { marked } from 'marked'
 import mammoth from 'mammoth'
+import JSZip from 'jszip'
 import { api } from './api'
 import { useFilesStore } from '../store/filesStore'
 
@@ -168,6 +169,145 @@ function parseCSVRow(row, sep) {
   return cells
 }
 
+// ── PPTX converter ───────────────────────────────────────────────────────────
+
+/**
+ * Extract all text runs (<a:t>) from a slide XML string grouped by shape (<p:sp>).
+ * Returns an array of text-block arrays: [[run, run, ...], [run, run, ...], ...]
+ * Each inner array corresponds to one shape's paragraph runs.
+ */
+function extractTextBlocksFromSlideXml(xmlText) {
+  // Collect all <p:sp> shapes that have text bodies (<p:txBody>)
+  const shapes = []
+  // Match each <p:sp>...</p:sp> block
+  const spRegex = /<p:sp[\s>][\s\S]*?<\/p:sp>/g
+  let spMatch
+  while ((spMatch = spRegex.exec(xmlText)) !== null) {
+    const spXml = spMatch[0]
+    // Only process shapes that have a text body
+    if (!spXml.includes('<p:txBody>') && !spXml.includes('<p:txBody ')) continue
+    // Collect all paragraphs <a:p> from this shape
+    const paragraphs = []
+    const pRegex = /<a:p[\s>][\s\S]*?<\/a:p>/g
+    let pMatch
+    while ((pMatch = pRegex.exec(spXml)) !== null) {
+      const pXml = pMatch[0]
+      // Collect all text runs <a:t> from this paragraph
+      const runs = []
+      const tRegex = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g
+      let tMatch
+      while ((tMatch = tRegex.exec(pXml)) !== null) {
+        // Decode basic XML entities
+        const text = tMatch[1]
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+        runs.push(text)
+      }
+      const combined = runs.join('').trim()
+      if (combined) paragraphs.push(combined)
+    }
+    if (paragraphs.length) shapes.push(paragraphs)
+  }
+  return shapes
+}
+
+/**
+ * Build a slide object (matching SlidesEditor's model) from a slide XML string.
+ * Shape 0 → title, all remaining shapes → content (HTML list if multiple lines).
+ */
+function buildSlideFromXml(xmlText) {
+  const shapes = extractTextBlocksFromSlideXml(xmlText)
+  let title = ''
+  const bodyLines = []
+
+  shapes.forEach((paragraphs, shapeIdx) => {
+    if (shapeIdx === 0) {
+      // First shape = title (join multi-paragraph runs)
+      title = paragraphs.join(' ')
+    } else {
+      paragraphs.forEach((p) => bodyLines.push(p))
+    }
+  })
+
+  // Build TipTap-compatible HTML content
+  let content = '<p></p>'
+  if (bodyLines.length === 1) {
+    content = `<p>${bodyLines[0]}</p>`
+  } else if (bodyLines.length > 1) {
+    const items = bodyLines.map((line) => `<li><p>${line}</p></li>`).join('')
+    content = `<ul>${items}</ul>`
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    title,
+    content,
+    notes: '',
+    background: '',
+    master: 'content',
+    transition: 'none',
+    animations: [],
+  }
+}
+
+/**
+ * Convert a .pptx File object to the slides content model:
+ * { themeId, theme, transition, slides: [{ id, title, content, notes, ... }], masters, customTheme }
+ */
+async function convertToPptxContent(file) {
+  const buf = await fileToArrayBuffer(file)
+  const zip = await JSZip.loadAsync(buf)
+
+  // Find all slide XML files in order: ppt/slides/slide1.xml, slide2.xml, ...
+  const slideEntries = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => {
+      const numA = parseInt(a.match(/slide(\d+)\.xml/)[1], 10)
+      const numB = parseInt(b.match(/slide(\d+)\.xml/)[1], 10)
+      return numA - numB
+    })
+
+  if (slideEntries.length === 0) {
+    // No slides found — return a single blank slide
+    return {
+      themeId: 'obsidian',
+      theme: 'black',
+      transition: 'slide',
+      slides: [{
+        id: crypto.randomUUID(),
+        title: '',
+        content: '<p></p>',
+        notes: '',
+        background: '',
+        master: 'content',
+        transition: 'none',
+        animations: [],
+      }],
+      masters: null,
+      customTheme: null,
+    }
+  }
+
+  const slides = await Promise.all(
+    slideEntries.map(async (entryName) => {
+      const xmlText = await zip.files[entryName].async('string')
+      return buildSlideFromXml(xmlText)
+    })
+  )
+
+  return {
+    themeId: 'obsidian',
+    theme: 'black',
+    transition: 'slide',
+    slides,
+    masters: null,
+    customTheme: null,
+  }
+}
+
 // ── Import from File object (drag & drop / file picker) ──────────────────────
 
 export async function importFile(file, navigate) {
@@ -184,13 +324,18 @@ export async function importFile(file, navigate) {
     return
   }
 
-  if (!type || type === 'slide') {
-    throw new Error(`Cannot import .${file.name.split('.').pop()} files yet.`)
+  if (!type) {
+    throw new Error(`Cannot import .${file.name.split('.').pop()} files.`)
   }
 
-  const content = type === 'doc'
-    ? await convertToDocContent(file)
-    : await convertToSheetContent(file)
+  let content
+  if (type === 'doc') {
+    content = await convertToDocContent(file)
+  } else if (type === 'sheet') {
+    content = await convertToSheetContent(file)
+  } else if (type === 'slide') {
+    content = await convertToPptxContent(file)
+  }
 
   const created = await api.createFile(baseName, type, content)
   useFilesStore.setState({ files: [created, ...useFilesStore.getState().files.filter(f => f.id !== created.id)] })
@@ -212,16 +357,18 @@ export async function importFromUrl(localFile, navigate) {
     return
   }
 
-  if (appType === 'slide') {
-    throw new Error('PPTX import is not yet supported. Use Export from another app.')
-  }
-
   // Fetch the file from the backend
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to fetch file')
 
   let content
-  if (appType === 'doc') {
+  if (appType === 'slide') {
+    const buf = await res.arrayBuffer()
+    // Wrap the ArrayBuffer in a minimal File-like object for convertToPptxContent
+    const blob = new Blob([buf])
+    const pseudoFile = new File([blob], name)
+    content = await convertToPptxContent(pseudoFile)
+  } else if (appType === 'doc') {
     if (ext === 'md') {
       const text = await res.text()
       const html = await marked.parse(text)

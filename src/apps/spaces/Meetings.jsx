@@ -346,6 +346,7 @@ function CreateModal({ open, onCreated, onClose }) {
         duration_min: form.duration_min || 0,
         lobby_required: form.lobby_required,
         signin_required: form.signin_required,
+        recording_enabled: form.recording_enabled,
       }
       if (form.scheduled_at) {
         body.scheduled_at = new Date(form.scheduled_at).toISOString()
@@ -430,10 +431,10 @@ function CreateModal({ open, onCreated, onClose }) {
               icon={ShieldCheck}
             />
             <ToggleRow
-              label="Recording"
-              hint="Recording is not yet available in this release."
-              checked={false}
-              onChange={() => {}}
+              label="Enable recording"
+              hint="Participants will be notified before recording starts. Only the meeting organiser can trigger recording during the call."
+              checked={form.recording_enabled}
+              onChange={() => update('recording_enabled', !form.recording_enabled)}
               icon={Circle}
             />
           </div>

@@ -126,6 +126,10 @@ func (m *memStorage) GetSuggestion(string, string) (*models.Suggestion, error) {
 func (m *memStorage) ListSuggestions(string) ([]*models.Suggestion, error)     { panic("unused") }
 func (m *memStorage) UpdateSuggestion(*models.Suggestion) error                { panic("unused") }
 func (m *memStorage) DeleteSuggestion(string, string) error                    { panic("unused") }
+func (m *memStorage) CreateRecording(*models.MeetingRecording) error                   { panic("unused") }
+func (m *memStorage) ListRecordings(string) ([]*models.MeetingRecording, error)        { panic("unused") }
+func (m *memStorage) GetRecording(string) (*models.MeetingRecording, error)            { panic("unused") }
+func (m *memStorage) DeleteRecording(string) error                                     { panic("unused") }
 
 var _ storage.Storage = (*memStorage)(nil)
 

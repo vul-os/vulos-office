@@ -81,7 +81,7 @@ func (h *MeetingHandler) Create(c *gin.Context) {
 		OrganizerID:      organizerID,
 		LobbyRequired:    req.LobbyRequired,
 		SigninRequired:   req.SigninRequired,
-		RecordingEnabled: false, // stub — always false
+		RecordingEnabled: req.RecordingEnabled,
 	}
 
 	if err := h.store.CreateMeeting(m); err != nil {

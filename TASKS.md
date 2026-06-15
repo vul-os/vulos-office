@@ -10,6 +10,9 @@ surfaces (see `src/design/DESIGN.md` §9); remaining surfaces deferred to the ne
 Wave D (2026-06-15): object-store write-through (FIX-OFFICE-STORE-WIRE-01), Postgres suggestions
 (OFFICE-27), REST/poll presence (OFFICE-62), private-channel invite (P1-4), optional SMTP reminders
 (P1-5), recording label honesty (P2-6), P2P mesh call cap ≤6 (P2-7), importFile alert→throw (P2-8).
+Wave E (2026-06-15): real meeting recording (MEET-RECORDING — MediaRecorder + bucket upload +
+backend storage + organiser download), real PPTX import (JSZip OOXML parser), deep-link routing
+(/meet/:id + web+vulosoffice:// protocol handler + ?goto= param).
 
 Actionable work for autonomous coding agents, grouped by area and
 **priority-ordered**. Vulos Office is the productivity surface of the Vulos

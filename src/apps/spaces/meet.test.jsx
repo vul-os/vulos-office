@@ -70,7 +70,7 @@ describe('Schedule meeting modal', () => {
 
     expect(screen.getByText('Lobby')).toBeTruthy()
     expect(screen.getByText('Require sign-in')).toBeTruthy()
-    expect(screen.getByText('Recording')).toBeTruthy()
+    expect(screen.getByText('Enable recording')).toBeTruthy()
   })
 })
 
@@ -356,47 +356,41 @@ describe('Rate limit — join endpoint', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 11. Recording stub is non-functional
+// 11. RecordingControl — real recording (non-organizer path)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('Recording stub', () => {
-  it('11.1 RecordingStub button is disabled', async () => {
-    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
-    render(<RecordingStub />)
+describe('RecordingControl (non-organizer)', () => {
+  it('11.1 RecordingControl button is disabled for non-organizers', async () => {
+    const RecordingControl = (await import('./components/RecordingStub.jsx')).default
+    render(<RecordingControl call={null} roomId="testroom" isOrganizer={false} />)
     const btn = screen.getByRole('button')
     expect(btn.disabled).toBe(true)
   })
 
-  it('11.2 RecordingStub shows "soon" badge', async () => {
-    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
-    render(<RecordingStub />)
-    expect(screen.getByText('soon')).toBeTruthy()
+  it('11.2 RecordingControl shows "Rec" label', async () => {
+    const RecordingControl = (await import('./components/RecordingStub.jsx')).default
+    render(<RecordingControl call={null} roomId="testroom" isOrganizer={false} />)
+    expect(screen.getByText('Rec')).toBeTruthy()
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 11b. RecordingStub: no onClick, no state mutation
+// 11b. RecordingControl — organizer path shows consent banner on click
 // ─────────────────────────────────────────────────────────────────────────────
-describe('Recording stub — no-op behaviour', () => {
-  it('11b.1 RecordingStub button has no onClick handler or click is a no-op', async () => {
-    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
-    render(<RecordingStub />)
+describe('RecordingControl — organizer consent flow', () => {
+  it('11b.1 RecordingControl is enabled for organizers', async () => {
+    const RecordingControl = (await import('./components/RecordingStub.jsx')).default
+    render(<RecordingControl call={null} roomId="testroom" isOrganizer={true} />)
     const btn = screen.getByRole('button')
-    // Button is disabled — clicking a disabled button fires no events
-    expect(btn.disabled).toBe(true)
-    // Clicking disabled button must not throw
-    fireEvent.click(btn)
-    // No state assertions needed: the component is stateless
+    expect(btn.disabled).toBe(false)
   })
 
-  it('11b.2 RecordingStub is stateless (no recording state mutation on click)', async () => {
-    const RecordingStub = (await import('./components/RecordingStub.jsx')).default
-    const { container } = render(<RecordingStub />)
-    const btn = container.querySelector('button')
-    // Simulate click — should not change DOM (still disabled, still shows "soon")
+  it('11b.2 Clicking RecordingControl as organizer shows consent banner', async () => {
+    const RecordingControl = (await import('./components/RecordingStub.jsx')).default
+    render(<RecordingControl call={null} roomId="testroom" isOrganizer={true} />)
+    const btn = screen.getByRole('button')
     fireEvent.click(btn)
     await act(async () => {})
-    expect(screen.getByText('soon')).toBeTruthy()
-    expect(btn.disabled).toBe(true)
+    expect(screen.getByText('Start recording?')).toBeTruthy()
   })
 })
 

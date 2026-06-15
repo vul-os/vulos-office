@@ -76,6 +76,12 @@ type Storage interface {
 	UpdateMeeting(m *models.Meeting) error
 	DeleteMeeting(id string) error
 
+	// --- Meeting recordings ---
+	CreateRecording(r *models.MeetingRecording) error
+	ListRecordings(meetingID string) ([]*models.MeetingRecording, error)
+	GetRecording(id string) (*models.MeetingRecording, error)
+	DeleteRecording(id string) error
+
 	// --- Suggestions / track-changes (OFFICE-27) ---
 	CreateSuggestion(s *models.Suggestion) error
 	GetSuggestion(fileID, suggestionID string) (*models.Suggestion, error)

@@ -30,7 +30,7 @@ import RaiseHand, { HandIndicator } from './components/RaiseHand.jsx'
 import Reactions from './components/Reactions.jsx'
 import BackgroundBlur from './components/BackgroundBlur.jsx'
 import PresenterFocus, { usePinnedLayout } from './components/PresenterFocus.jsx'
-import RecordingStub from './components/RecordingStub.jsx'
+import RecordingControl from './components/RecordingStub.jsx'
 import Captions, { CaptionOverlay } from './components/Captions.jsx'
 import { gridLayout, useViewportWidth } from './components/speakerGrid.js'
 
@@ -57,6 +57,9 @@ export default function CallView({
   const [blurEnabled, setBlurEnabled] = useState(false)
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
   const [pinnedId, setPinnedId] = useState(null)
+  const [recording, setRecording] = useState(false)
+  // roomId is the bare room ID extracted from the fabric session ID.
+  const roomId = sessionId?.replace(/^meeting:/, '') ?? sessionId
   const localVideoRef = useRef(null)
   const screenPreviewRef = useRef(null)
   const blurPreviewRef = useRef(null)
@@ -333,6 +336,8 @@ export default function CallView({
         isOrganizer={isOrganizer}
         peers={peers}
         pinnedId={pinnedId}
+        roomId={roomId}
+        recording={recording}
         onMute={handleMute}
         onCamera={handleCamera}
         onScreenShare={handleScreenShare}
@@ -345,6 +350,7 @@ export default function CallView({
         onBlurToggle={(on) => setBlurEnabled(on)}
         onCaptionsToggle={(on) => setCaptionsEnabled(on)}
         onPin={setPinnedId}
+        onRecordingChange={setRecording}
         identity={identity}
         blurPreviewRef={blurPreviewRef}
       />
@@ -677,6 +683,7 @@ function Controls({
   muted, cameraOff, screenSharing,
   handRaised, blurEnabled, captionsEnabled,
   isOrganizer, peers, pinnedId,
+  roomId, recording, onRecordingChange,
   onMute, onCamera, onScreenShare, onLeave,
   onToggleRoster, rosterActive,
   onToggleChat, chatActive,
@@ -731,8 +738,13 @@ function Controls({
           identity={identity}
         />
 
-        {/* Recording stub */}
-        <RecordingStub />
+        {/* Recording control */}
+        <RecordingControl
+          call={call}
+          roomId={roomId}
+          isOrganizer={isOrganizer}
+          onRecording={onRecordingChange}
+        />
 
         <span className="w-px h-6 bg-paper/10 mx-1" aria-hidden />
 

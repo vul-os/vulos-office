@@ -2,6 +2,20 @@ package models
 
 import "time"
 
+// MeetingRecording holds metadata for a recorded call segment uploaded by a participant.
+type MeetingRecording struct {
+	ID          string    `json:"id"`
+	MeetingID   string    `json:"meeting_id"`
+	RoomID      string    `json:"room_id"`
+	OrganizerID string    `json:"organizer_id"`
+	AccountID   string    `json:"account_id"` // uploader
+	FileName    string    `json:"file_name"`   // e.g. "recording-<id>.webm"
+	SizeBytes   int64     `json:"size_bytes"`
+	DurationSec int       `json:"duration_sec,omitempty"`
+	BucketKey   string    `json:"bucket_key"`  // org-scoped S3 key
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // MeetingStatus represents the lifecycle state of a scheduled meeting.
 type MeetingStatus string
 
@@ -28,7 +42,7 @@ type Meeting struct {
 	OrganizerID      string        `json:"organizer_id,omitempty"`
 	LobbyRequired    bool          `json:"lobby_required"`
 	SigninRequired   bool          `json:"signin_required"`
-	RecordingEnabled bool          `json:"recording_enabled"` // stub; always false
+	RecordingEnabled bool          `json:"recording_enabled"`
 	CreatedAt        time.Time     `json:"created_at"`
 	UpdatedAt        time.Time     `json:"updated_at"`
 }
@@ -50,6 +64,7 @@ type CreateMeetingRequest struct {
 	DurationMin      int        `json:"duration_min,omitempty"`
 	LobbyRequired    bool       `json:"lobby_required"`
 	SigninRequired   bool       `json:"signin_required"`
+	RecordingEnabled bool       `json:"recording_enabled"`
 	OrganizerID      string     `json:"organizer_id,omitempty"`
 }
 

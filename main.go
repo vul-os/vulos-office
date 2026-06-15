@@ -257,6 +257,14 @@ func main() {
 	protected.POST("/meet/:roomId/admit-all", meetJoinHandler.AdmitAll)
 	protected.POST("/meet/:roomId/deny", meetJoinHandler.Deny)
 
+	// Recording upload/list/download are semi-public (join token validates the uploader);
+	// delete requires full auth.
+	recordingHandler := handlers.NewRecordingHandler(store)
+	api.POST("/meet/:roomId/recordings", recordingHandler.Upload)
+	api.GET("/meet/:roomId/recordings", recordingHandler.List)
+	api.GET("/meet/:roomId/recordings/:rid", recordingHandler.Download)
+	protected.DELETE("/meet/:roomId/recordings/:rid", recordingHandler.Delete)
+
 	// Sheets XLSX import/export endpoints.
 	sheetsHandler := handlers.NewSheetsHandler(store)
 	protected.POST("/sheets/:id/import", sheetsHandler.Import)
