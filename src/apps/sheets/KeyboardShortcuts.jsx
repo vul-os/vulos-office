@@ -114,14 +114,53 @@ export function useSheetKeyboardShortcuts({ containerRef, data, onChange, onShow
       return
     }
 
-    // Cmd+Shift+V → paste values only
-    // We can't intercept the clipboard directly here, but we stop propagation
-    // so Fortune Sheet's default paste handler is skipped and show a toast-level note.
-    // Full values-only paste would require clipboard API + re-inject; this stubs it.
-    if (e.shiftKey && e.key === 'v') {
-      // Intentionally allow default: Fortune Sheet's own paste is fine for values-only
-      // when user has plain text on clipboard. If it has formatting, nothing to strip
-      // without Fortune Sheet's imperative API — this is as far as we can go in a wrapper.
+    // Cmd+Shift+V → paste values only (strip formatting, re-inject as plain text).
+    if (e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!navigator.clipboard?.readText) return
+      navigator.clipboard.readText().then(text => {
+        if (!text) return
+        const addr = getFocusedCellAddress()
+        if (!addr) return
+        // Parse addr to get start row/col (addr is like "A1").
+        const addrMatch = addr.match(/^([A-Z]+)(\d+)$/)
+        if (!addrMatch) return
+        const startRow = parseInt(addrMatch[2], 10) - 1
+        let startCol = 0
+        for (let i = 0; i < addrMatch[1].length; i++) {
+          startCol = startCol * 26 + (addrMatch[1].charCodeAt(i) - 64)
+        }
+        startCol -= 1
+        // Parse clipboard as TSV (tab-separated columns, newline-separated rows).
+        const rows = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+        // Trim trailing empty row from trailing newline.
+        if (rows.length > 1 && rows[rows.length - 1] === '') rows.pop()
+        // Build column letter from 0-based index.
+        function colLetter(n) {
+          let s = ''
+          n += 1
+          while (n > 0) {
+            n--
+            s = String.fromCharCode(65 + (n % 26)) + s
+            n = Math.floor(n / 26)
+          }
+          return s
+        }
+        let nextData = data
+        for (let ri = 0; ri < rows.length; ri++) {
+          const cols = rows[ri].split('\t')
+          for (let ci = 0; ci < cols.length; ci++) {
+            let val = cols[ci]
+            // Values-only paste: if value starts with '=' treat as string literal.
+            if (val.startsWith('=')) val = "'" + val
+            const targetAddr = colLetter(startCol + ci) + String(startRow + ri + 1)
+            const next = setCellValueInData(nextData, targetAddr, val)
+            if (next) nextData = next
+          }
+        }
+        if (nextData !== data) onChange(nextData)
+      })
       return
     }
 

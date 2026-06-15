@@ -6,7 +6,7 @@
  * Deploy: upload dist-calendar/ to Tigris at calendar/<sha>/
  *   Fly SPA fallback: configure the fly.toml `[[http_service]]` block (or the
  *   static file server fronting it) to serve index.html for any unmatched path.
- *   TODO: wire Tigris static deploy in DEPLOY.md.
+ *   See scripts/deploy-static.sh and DEPLOY.md for deployment instructions.
  *
  * Usage: vite build --config vite.config.calendar.js
  */

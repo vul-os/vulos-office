@@ -9,6 +9,20 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased] — 2026-06-15
 
 ### Added
+- **CONTACTS-CRUD**: Individual contact REST CRUD (`GET/POST/PUT/DELETE /api/contacts`, `/api/contacts/:uid`).
+  - Account isolation via `callerScope` — non-owners get 404, no existence leak.
+  - `ContactsApp.jsx` uses REST API as primary when `VITE_CARDDAV_BASE` is not set; falls back to CardDAV only when explicitly configured.
+  - JSON payload mirrors `contacts_vcf.Contact`; snake_case normalised to camelCase in UI.
+- **SHEETS-PASTE-VALUES**: Real Cmd+Shift+V paste-values-only in `KeyboardShortcuts.jsx`.
+  - Reads clipboard via `navigator.clipboard.readText()`, parses TSV (tab-separated rows).
+  - Formula prefix (`=`) stripped to prevent re-evaluation (prefixed with `'`).
+  - Multi-cell paste: iterates rows × columns, calls `setCellValueInData` per cell, single `onChange`.
+- **DEPLOY-SCRIPT**: `scripts/deploy-static.sh` — build all four SPA targets and upload to Tigris.
+  - Supports `office|meet|talk|calendar|all` (default: all).
+  - `--latest` flag writes SHA pointer object for CDN routing.
+  - `DEPLOY.md` added documenting credentials, usage, CDN URL scheme, and Fly SPA fallback config.
+  - Vite config TODO comments resolved (now reference `scripts/deploy-static.sh` and `DEPLOY.md`).
+- **OFFICE-08** (complete): version snapshot ACs marked done — both local and Postgres `UpdateFile` call `CreateVersion`; `HistoryPanel` exists and works.
 - **MEET-RECORDING**: Real client-side meeting recording (MediaRecorder on local stream).
   - `RecordingControl` replaces `RecordingStub` — consent banner, start/stop, pulsing red indicator.
   - After stop, WebM blob uploads to `/api/meet/:roomId/recordings`; falls back to local

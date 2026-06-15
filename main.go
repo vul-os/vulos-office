@@ -292,8 +292,13 @@ func main() {
 	protected.DELETE("/admin/invites/:id", adminHandler.RevokeInvite)
 	protected.GET("/admin/audit", adminHandler.ListAudit)
 
-	// Contacts: VCF import/export, dedup, merge.
+	// Contacts: VCF import/export, dedup, merge, and individual CRUD.
 	contactsHandler := handlers.NewContactsVCFHandler()
+	protected.GET("/contacts", contactsHandler.ListContacts)
+	protected.POST("/contacts", contactsHandler.CreateContact)
+	protected.GET("/contacts/:uid", contactsHandler.GetContact)
+	protected.PUT("/contacts/:uid", contactsHandler.UpdateContact)
+	protected.DELETE("/contacts/:uid", contactsHandler.DeleteContact)
 	protected.POST("/contacts/import", contactsHandler.ImportVCF)
 	protected.GET("/contacts/export", contactsHandler.ExportVCF)
 	protected.GET("/contacts/duplicates", contactsHandler.FindDuplicates)

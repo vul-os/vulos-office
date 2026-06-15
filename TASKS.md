@@ -93,7 +93,7 @@ AC: [x] auth disabled → open access [x] auth enabled → login required, locko
 ### [OFFICE-08] Local document version history + snapshots
 `done` · P1 · M · dep: OFFICE-06 · parallel: yes — backend/models/models.go, backend/storage/local.go, backend/storage/postgres.go, backend/handlers/files.go, src/components/Settings.jsx
 Scope: Add per-file version snapshots: on save, retain the prior content as a version row/record (cap N, configurable). New endpoints `GET /api/files/:id/versions` and `POST /api/files/:id/versions/:vid/restore`. Surface a minimal history/restore UI in the editor top bars. Document-model agnostic (works for doc/sheet/slide content blobs). JSX only.
-AC: [ ] saves create version snapshots, capped at N [ ] list + restore a prior version via API [ ] history panel renders + restore works in at least the Docs editor [ ] go build ./... && npm run build
+AC: [x] saves create version snapshots, capped at N [x] list + restore a prior version via API [x] history panel renders + restore works in at least the Docs editor [x] go build ./... && npm run build
 
 ### [OFFICE-09] Crash-safe autosave + offline write recovery
 `done` · P1 · M · dep: OFFICE-01, OFFICE-02 · parallel: yes — src/store/filesStore.js, src/lib/api.js, src/apps/docs/DocsEditor.jsx, src/apps/sheets/SheetsEditor.jsx
@@ -428,3 +428,18 @@ recording toggle. Bring it to ship-ready:
 (e) **Responsive speaker grid** — 1/2/4/9/16/25 tile layouts adapting to viewport.
 (f) **Active-speaker emphasis** — subtle border-glow on the loudest tile.
 AC: [x] captions panel renders SSE [x] recording indicator + quota [x] raise-hand queue [x] breakout create/drift/return [x] responsive grid (test viewports) [x] active-speaker animation [x] npm run build + npm test green
+
+### [CONTACTS-CRUD] Individual contacts REST CRUD
+`done` · P1 · S · dep: none · parallel: yes
+Scope: GET/POST/PUT/DELETE /api/contacts/:uid endpoints with account isolation, wired in main.go; ContactsApp.jsx uses REST as primary path when CardDAV not configured.
+AC: [x] list/create/get/update/delete via REST [x] account isolation enforced [x] ContactsApp falls back to REST when VITE_CARDDAV_BASE unset [x] go build ./...
+
+### [SHEETS-PASTE-VALUES] Sheets Cmd+Shift+V paste values only
+`done` · P2 · S · dep: OFFICE-02 · parallel: yes
+Scope: Real implementation of paste-values-only in KeyboardShortcuts.jsx: reads clipboard as plain text, parses TSV, strips formula prefix, injects cells via setCellValueInData.
+AC: [x] Cmd+Shift+V pastes plain text values into cells [x] TSV multi-cell paste supported [x] formula prefix stripped
+
+### [DEPLOY-STATIC] Tigris static deploy script
+`done` · P2 · S · dep: none · parallel: yes
+Scope: scripts/deploy-static.sh: builds each target, uploads to Tigris via AWS CLI, prints CDN URLs, --latest flag writes sha pointer. DEPLOY.md documents usage.
+AC: [x] script builds + uploads all targets [x] --latest flag works [x] DEPLOY.md written [x] vite.config.*.js TODOs resolved

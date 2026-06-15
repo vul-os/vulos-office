@@ -320,3 +320,95 @@ func normalisePhone(s string) string {
 func ImportVCFFromBytes(data []byte) ([]contacts_vcf.Contact, error) {
 	return contacts_vcf.Import(io.NopCloser(bytes.NewReader(data)))
 }
+
+// ListContacts GET /api/contacts — list all contacts for the caller.
+func (h *ContactsVCFHandler) ListContacts(c *gin.Context) {
+	requester, isAdmin := callerScope(c)
+	cs := durableContactStore()
+	storeContacts := cs.List(requester, isAdmin)
+	out := make([]contacts_vcf.Contact, 0, len(storeContacts))
+	for _, sc := range storeContacts {
+		out = append(out, storeToVCF(sc))
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// GetContact GET /api/contacts/:uid — get single contact.
+func (h *ContactsVCFHandler) GetContact(c *gin.Context) {
+	uid := c.Param("uid")
+	requester, isAdmin := callerScope(c)
+	sc, ok := durableContactStore().Get(uid, requester, isAdmin)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "contact not found"})
+		return
+	}
+	c.JSON(http.StatusOK, storeToVCF(sc))
+}
+
+// CreateContact POST /api/contacts — create contact from JSON body.
+func (h *ContactsVCFHandler) CreateContact(c *gin.Context) {
+	var contact contacts_vcf.Contact
+	if err := c.ShouldBindJSON(&contact); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if contact.UID == "" {
+		contact.UID = uuid.NewString()
+	}
+	now := time.Now().UTC()
+	if contact.CreatedAt.IsZero() {
+		contact.CreatedAt = now
+	}
+	contact.UpdatedAt = now
+	owner := requesterID(c)
+	sc := vcfToStore(&contact, owner)
+	sc.CreatedAt = contact.CreatedAt
+	sc.UpdatedAt = contact.UpdatedAt
+	if err := durableContactStore().Put(sc); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "storage error"})
+		return
+	}
+	c.JSON(http.StatusCreated, contact)
+}
+
+// UpdateContact PUT /api/contacts/:uid — update contact.
+func (h *ContactsVCFHandler) UpdateContact(c *gin.Context) {
+	uid := c.Param("uid")
+	requester, isAdmin := callerScope(c)
+	cs := durableContactStore()
+	existing, ok := cs.Get(uid, requester, isAdmin)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "contact not found"})
+		return
+	}
+	var contact contacts_vcf.Contact
+	if err := c.ShouldBindJSON(&contact); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// UID in URL is authoritative.
+	contact.UID = uid
+	contact.UpdatedAt = time.Now().UTC()
+	if contact.CreatedAt.IsZero() {
+		contact.CreatedAt = existing.CreatedAt
+	}
+	sc := vcfToStore(&contact, requester)
+	sc.CreatedAt = existing.CreatedAt
+	sc.UpdatedAt = contact.UpdatedAt
+	if err := cs.Put(sc); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "storage error"})
+		return
+	}
+	c.JSON(http.StatusOK, contact)
+}
+
+// DeleteContact DELETE /api/contacts/:uid — delete contact.
+func (h *ContactsVCFHandler) DeleteContact(c *gin.Context) {
+	uid := c.Param("uid")
+	requester, isAdmin := callerScope(c)
+	if !durableContactStore().Delete(uid, requester, isAdmin) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "contact not found"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}

@@ -30,6 +30,10 @@ const CARDDAV_BASE = import.meta.env.VITE_CARDDAV_BASE || '/dav/addressbooks'
 const API_BASE     = import.meta.env.VITE_API_BASE     || '/api'
 const COLLECTION   = 'contacts'
 
+// Use REST API as primary when CardDAV is not explicitly configured (default
+// base '/dav/addressbooks' means no external CardDAV server).
+const USE_REST = !import.meta.env.VITE_CARDDAV_BASE
+
 const LABEL_OPTIONS = ['home', 'work', 'mobile', 'other']
 
 // ─── Identicon / Avatar ───────────────────────────────────────────────────────
@@ -182,6 +186,84 @@ async function deleteContact(accountID, creds, uid) {
   const url = `${CARDDAV_BASE}/${accountID}/${COLLECTION}/${uid}.vcf`
   const r = await fetch(url, { method: 'DELETE', headers: davHeaders(creds) })
   if (!r.ok && r.status !== 204) throw new Error(`CardDAV DELETE ${r.status}`)
+}
+
+// ─── REST API helpers (primary when CardDAV not configured) ───────────────────
+
+async function restListContacts() {
+  const r = await fetch(`${API_BASE}/contacts`, { credentials: 'include' })
+  if (!r.ok) throw new Error(`List contacts failed: ${r.status}`)
+  const list = await r.json()
+  // Normalise snake_case fields from backend to camelCase used in UI.
+  return list.map(normaliseContact).sort((a, b) =>
+    (a.displayName || '').localeCompare(b.displayName || ''))
+}
+
+async function restPutContact(contact, isNew) {
+  const method = isNew ? 'POST' : 'PUT'
+  const url = isNew ? `${API_BASE}/contacts` : `${API_BASE}/contacts/${contact.uid}`
+  const payload = {
+    uid: contact.uid,
+    first_name: contact.firstName,
+    last_name: contact.lastName,
+    display_name: contact.displayName || [contact.firstName, contact.lastName].filter(Boolean).join(' '),
+    emails: (contact.emails || []).map(e => ({ label: e.label, address: e.address })),
+    phones: (contact.phones || []).map(p => ({ label: p.label, number: p.number })),
+    addresses: (contact.addresses || []).map(a => ({
+      label: a.label, street: a.street, city: a.city,
+      state: a.state, zip: a.zip, country: a.country,
+    })),
+    birthday: contact.birthday || '',
+    org: contact.org || '',
+    title: contact.title || '',
+    notes: contact.notes || '',
+    starred: contact.starred || false,
+    groups: contact.groups || [],
+    avatar_url: contact.avatarUrl || '',
+    custom_fields: contact.customFields || {},
+  }
+  const r = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+  if (!r.ok) throw new Error(`Save contact failed: ${r.status}`)
+  return normaliseContact(await r.json())
+}
+
+async function restDeleteContact(uid) {
+  const r = await fetch(`${API_BASE}/contacts/${uid}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!r.ok && r.status !== 404) throw new Error(`Delete contact failed: ${r.status}`)
+}
+
+// normaliseContact maps backend snake_case JSON fields to the camelCase shape
+// expected by the UI components.
+function normaliseContact(c) {
+  return {
+    uid: c.uid,
+    firstName: c.first_name || '',
+    lastName: c.last_name || '',
+    displayName: c.display_name || [c.first_name, c.last_name].filter(Boolean).join(' '),
+    emails: (c.emails || []).map(e => ({ label: e.label || 'other', address: e.address || '' })),
+    phones: (c.phones || []).map(p => ({ label: p.label || 'other', number: p.number || '' })),
+    addresses: (c.addresses || []).map(a => ({
+      label: a.label || 'home',
+      street: a.street || '', city: a.city || '',
+      state: a.state || '', zip: a.zip || '', country: a.country || '',
+    })),
+    birthday: c.birthday || '',
+    org: c.org || '',
+    title: c.title || '',
+    notes: c.notes || '',
+    starred: c.starred || false,
+    groups: c.groups || [],
+    avatarUrl: c.avatar_url || '',
+    customFields: c.custom_fields || {},
+  }
 }
 
 // ─── ContactForm (rich) ───────────────────────────────────────────────────────
@@ -845,6 +927,18 @@ export default function ContactsApp() {
   const allGroups = [...new Set(contacts.flatMap(c => c.groups || []))].sort()
 
   const load = useCallback(async () => {
+    if (USE_REST) {
+      setLoading(true); setError(null)
+      try {
+        const list = await restListContacts()
+        setContacts(list)
+      } catch (e) {
+        setError(e.message)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
     if (!accountID || !creds.email) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
@@ -861,17 +955,29 @@ export default function ContactsApp() {
 
   const handleSave = async (data) => {
     try {
-      await putContact(accountID, creds, data)
-      setShowForm(false); setEdit(null)
-      await load()
-      setSelected(data)
+      const isNew = !contacts.find(c => c.uid === data.uid)
+      if (USE_REST) {
+        const saved = await restPutContact(data, isNew)
+        setShowForm(false); setEdit(null)
+        await load()
+        setSelected(saved)
+      } else {
+        await putContact(accountID, creds, data)
+        setShowForm(false); setEdit(null)
+        await load()
+        setSelected(data)
+      }
     } catch (e) { setError(e.message) }
   }
 
   const handleDelete = async (uid) => {
     if (!confirm('Delete this contact?')) return
     try {
-      await deleteContact(accountID, creds, uid)
+      if (USE_REST) {
+        await restDeleteContact(uid)
+      } else {
+        await deleteContact(accountID, creds, uid)
+      }
       if (selected?.uid === uid) setSelected(null)
       await load()
     } catch (e) { setError(e.message) }
