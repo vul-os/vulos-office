@@ -8,6 +8,26 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] — 2026-06-16
 
+### Added (Google-parity Wave H — Sheets/Slides/Docs polish)
+
+**Sheets:**
+- **SHEETS-FORMULA-BAR**: Fortune Sheet `showFormulaBar={true}` prop enabled — built-in formula bar now appears above the grid, showing and allowing editing of the active cell's content/formula.
+- **SHEETS-FREEZE**: Freeze Rows/Columns UI added (`FreezePanel` component). Lock icon in toolbar opens a popover with: Freeze top row, Freeze first column, Freeze rows (custom count), Freeze columns (custom count), Unfreeze. Calls `workbookRef.current.freeze()` API on the FortuneSheet `WorkbookInstance`.
+- **SHEETS-CELL-COMMENTS**: Cell-level comment annotations (`CellCommentPanel`). MessageSquarePlus toolbar button opens a popover showing the current comment for the active cell (`ps.value` field in Fortune Sheet format), with edit/save/delete. Active cell tracked via `afterSelectionChange` hook.
+
+**Slides:**
+- **SLIDES-TEXT-COLOR**: Text color picker added to the slide formatting toolbar (Palette icon + overlaid `<input type="color">`). Uses TipTap Color extension (`setColor`) already loaded.
+- **SLIDES-GRID-VIEW**: Slide grid/overview mode (LayoutGrid button in topbar). Replaces the editor area with a 4-column thumbnail grid of all slides. Click any card to jump to that slide (closes grid). Drag-to-reorder via existing drag state. Exit via "Edit" button.
+
+**Docs:**
+- **DOCS-FIND-HIGHLIGHT**: Find & Replace now highlights ALL matches in the document canvas using ProseMirror inline decorations (`FindHighlightExtension` registered as a TipTap extension). Yellow highlight for all matches; orange/outlined highlight for the current match. Decorations update live as the search term changes, and clear when the bar is closed.
+- **DOCS-FIND-REGEX**: Regex mode toggle (`.*` button) in the Find bar. When active, the search term is used as a raw RegExp pattern. Invalid regex patterns show a danger indicator and return no results safely. Replace/ReplaceAll also respect the regex flag.
+- **DOCS-PAGE-BREAK**: "Page break" item in the Docs overflow menu (Insert section). Inserts a `<p style="page-break-after:always">` with a visual dashed line — renders as a section separator in edit mode and triggers a real CSS page break when printing.
+
+### Tests
+- 12 new unit tests in `src/apps/docs/__tests__/findReplace.test.js` covering `findAllMatches`: case-insensitive, case-sensitive, no match, empty term, special-char escaping, regex digit pattern, invalid regex safety, position accuracy, regex case flags, and literal-dot behaviour.
+- Total: 284 tests passing (was 272).
+
 ### Fixed (PDF signing pipeline — Wave G)
 - **SEAL-HASH-FIX**: Fixed a circular-dependency bug in the seal→verify hash design.  
   Previously `FinalDocHash` was computed *after* attaching the manifest JSON to the PDF,

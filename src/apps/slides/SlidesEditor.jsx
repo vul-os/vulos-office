@@ -16,7 +16,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, List, Image as ImageIcon,
   Check, Circle, AlertCircle, StickyNote, Palette, Layout,
   Copy, FileText, GripVertical, Monitor, Zap, Undo, Redo,
-  ChevronDown as ChevronDownIcon, Type as TypeIcon,
+  ChevronDown as ChevronDownIcon, Type as TypeIcon, LayoutGrid, X,
 } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import { useFilesStore } from '../../store/filesStore'
@@ -98,9 +98,10 @@ export default function SlidesEditor() {
   const [sidebarTab, setSidebarTab] = useState('slides')
 
   // Modal states
-  const [showThemeGallery, setShowThemeGallery] = useState(false)
-  const [showMasterEditor, setShowMasterEditor] = useState(false)
+  const [showThemeGallery,   setShowThemeGallery]   = useState(false)
+  const [showMasterEditor,   setShowMasterEditor]   = useState(false)
   const [showTemplateGallery, setShowTemplateGallery] = useState(false)
+  const [showGridView,       setShowGridView]       = useState(false)
 
   // Notes panel height (resizable)
   const [notesHeight, setNotesHeight] = useState(80)
@@ -556,6 +557,12 @@ export default function SlidesEditor() {
                 <Layout size={14} />
               </IconButton>
             </Tooltip>
+            {/* Grid / overview mode */}
+            <Tooltip label="Slide overview">
+              <IconButton size="sm" active={showGridView} onClick={() => setShowGridView((v) => !v)} aria-label="Slide overview">
+                <LayoutGrid size={14} />
+              </IconButton>
+            </Tooltip>
             <Tooltip label="Comments">
               <IconButton size="sm" active={showComments} onClick={() => setShowComments((v) => !v)}>
                 <MessageSquare size={14} />
@@ -647,6 +654,95 @@ export default function SlidesEditor() {
       {/* ── Presentation preview ──────────────────────────────────────────── */}
       {presenting ? (
         <SlidePreview data={slidesData} onClose={() => setPresenting(false)} />
+      ) : showGridView ? (
+        /* ── Grid / Overview mode ───────────────────────────────────────── */
+        <div className="flex-1 flex flex-col overflow-hidden bg-bg">
+          {/* Grid header */}
+          <div className="flex items-center justify-between px-6 py-3 bg-paper border-b border-line">
+            <h2 className="text-sm font-semibold text-ink">Slide Overview</h2>
+            <button
+              type="button"
+              onClick={() => setShowGridView(false)}
+              className={[
+                'inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium',
+                'bg-paper border border-line text-ink-muted hover:border-line-strong hover:text-ink',
+                'transition-colors duration-fast',
+              ].join(' ')}
+              aria-label="Exit overview"
+            >
+              <X size={12} />
+              Edit
+            </button>
+          </div>
+          {/* Grid of thumbnails */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="grid grid-cols-4 gap-4">
+              {slidesData.slides.map((slide, idx) => {
+                const isActive = idx === activeIdx
+                return (
+                  <div
+                    key={slide.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={isActive ? 'true' : undefined}
+                    draggable
+                    onDragStart={() => setDragSlideIdx(idx)}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx) }}
+                    onDragEnd={handleSlideDropped}
+                    onClick={() => { setActiveIdx(idx); setShowGridView(false) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault(); setActiveIdx(idx); setShowGridView(false)
+                      }
+                    }}
+                    className={[
+                      'relative rounded-lg overflow-hidden cursor-pointer',
+                      'border-2 transition-[box-shadow,border-color] duration-fast',
+                      'focus-visible:outline-none focus-visible:shadow-focus',
+                      isActive ? 'border-accent shadow-e2' : 'border-line hover:border-line-strong hover:shadow-e1',
+                      dragOverIdx === idx && dragSlideIdx !== idx ? 'border-accent' : '',
+                    ].join(' ')}
+                  >
+                    {/* Slide number badge */}
+                    <div
+                      className="absolute top-2 left-2 z-10 text-[9px] font-semibold tracking-eyebrow uppercase px-1.5 py-0.5 rounded-sm bg-black/40 text-white"
+                    >
+                      {String(idx + 1).padStart(2, '0')}
+                    </div>
+                    {/* Active indicator */}
+                    {isActive && (
+                      <div className="absolute top-2 right-2 z-10 w-2 h-2 rounded-full bg-accent" />
+                    )}
+                    {/* Thumbnail body */}
+                    <div
+                      className="flex flex-col items-start justify-start p-4 bg-paper"
+                      style={{
+                        minHeight: '160px',
+                        background: slide.background || undefined,
+                      }}
+                    >
+                      <div
+                        className={[
+                          'text-sm font-bold truncate w-full mb-2',
+                          slide.background ? 'text-white' : 'text-ink',
+                        ].join(' ')}
+                      >
+                        {slide.title || `Slide ${idx + 1}`}
+                      </div>
+                      <div
+                        className={[
+                          'text-xs w-full overflow-hidden line-clamp-5 leading-snug',
+                          slide.background ? 'text-white/80' : 'text-ink-faint',
+                        ].join(' ')}
+                        dangerouslySetInnerHTML={{ __html: sanitize(slide.content) }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="flex-1 flex overflow-hidden slides-layout">
           {/* ── Slide thumbnail sidebar ────────────────────────────────── */}
@@ -1020,6 +1116,21 @@ export default function SlidesEditor() {
                     <LinkIcon size={14} />
                   </IconButton>
                 </Tooltip>
+                {/* Text color */}
+                <label
+                  className="toolbar-btn relative cursor-pointer flex items-center gap-1"
+                  title="Text color"
+                  aria-label="Text color"
+                >
+                  <Palette size={14} aria-hidden="true" />
+                  <input
+                    type="color"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    value={editor.getAttributes('textStyle').color || '#000000'}
+                    onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+                    aria-label="Choose text color"
+                  />
+                </label>
                 <span className="toolbar-divider" />
                 <Tooltip label="Align left">
                   <IconButton size="sm" active={editor.isActive({ textAlign: 'left' })}

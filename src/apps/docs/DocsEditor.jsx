@@ -178,6 +178,34 @@ const SuggestionDecorationsExtension = Extension.create({
   },
 })
 
+// ---------------------------------------------------------------------------
+// FindHighlightExtension — ProseMirror plugin for Find/Replace all-match
+// decorations. FindReplace.jsx dispatches transactions with the meta key
+// 'findHighlight' containing a DecorationSet to display/clear highlights.
+// ---------------------------------------------------------------------------
+const FIND_HIGHLIGHT_META_KEY = 'findHighlight'
+
+const FindHighlightExtension = Extension.create({
+  name: 'findHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        state: {
+          init: () => DecorationSet.empty,
+          apply(tr, old) {
+            const meta = tr.getMeta(FIND_HIGHLIGHT_META_KEY)
+            if (meta !== undefined) return meta
+            return old.map(tr.mapping, tr.doc)
+          },
+        },
+        props: {
+          decorations(state) { return this.getState(state) },
+        },
+      }),
+    ]
+  },
+})
+
 export default function DocsEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -245,6 +273,8 @@ export default function DocsEditor() {
       Superscript,
       // OFFICE-27: inline suggestion decorations (green insert / red strikethrough delete)
       SuggestionDecorationsExtension,
+      // Find/Replace all-match decorations (yellow highlights)
+      FindHighlightExtension,
     ],
     content: resolveContent(file?.content),
     onUpdate: ({ editor: ed }) => {

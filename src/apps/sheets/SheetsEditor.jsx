@@ -5,6 +5,7 @@ import '@fortune-sheet/react/dist/index.css'
 import {
   ArrowLeft, Save, Loader2, Download, Upload, AlertCircle, MessageSquare,
   Check, Circle, ChevronDown, BarChart2, Filter, Table2, Tag, Sliders, Keyboard, Search,
+  Lock, MessageSquarePlus, X,
 } from 'lucide-react'
 import { useFilesStore, getSaveState, onSaveStateChange } from '../../store/filesStore'
 import { api } from '../../lib/api'
@@ -29,6 +30,228 @@ const NamedRangesPanel        = lazy(() => import('./NamedRangesPanel.jsx'))
 const RETRY_DELAY_MS  = 4000
 const AUTOSAVE_DELAY_MS = 3000
 
+// ── FreezePanel ─────────────────────────────────────────────────────────────
+function FreezePanel({ workbookRef }) {
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState(null) // 'rows' | 'cols'
+  const [count, setCount] = useState(1)
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const freeze = (type, row, column) => {
+    workbookRef.current?.freeze(type, { row, column })
+    setOpen(false)
+    setMode(null)
+  }
+
+  return (
+    <div ref={panelRef} className="relative">
+      <Tooltip label="Freeze rows / columns">
+        <IconButton size="sm" active={open} onClick={() => { setOpen((v) => !v); setMode(null) }}>
+          <Lock size={14} />
+        </IconButton>
+      </Tooltip>
+      {open && (
+        <div
+          role="menu"
+          className={[
+            'absolute left-0 top-full mt-0.5 w-52 py-1',
+            'bg-paper border border-line rounded-md shadow-e2 z-40 text-sm',
+            'animate-scale-in',
+          ].join(' ')}
+        >
+          {mode === null ? (
+            <>
+              <button
+                role="menuitem"
+                onClick={() => freeze('row', 1, 0)}
+                className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted"
+              >
+                Freeze top row
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => freeze('column', 0, 1)}
+                className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted"
+              >
+                Freeze first column
+              </button>
+              <hr className="border-line my-1" />
+              <button
+                role="menuitem"
+                onClick={() => { setMode('rows'); setCount(2) }}
+                className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted"
+              >
+                Freeze rows…
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => { setMode('cols'); setCount(2) }}
+                className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted"
+              >
+                Freeze columns…
+              </button>
+              <hr className="border-line my-1" />
+              <button
+                role="menuitem"
+                onClick={() => freeze('both', 0, 0)}
+                className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted"
+              >
+                Unfreeze
+              </button>
+            </>
+          ) : (
+            <div className="px-3 py-2 flex flex-col gap-2">
+              <label className="text-2xs font-semibold uppercase tracking-eyebrow text-ink-faint">
+                {mode === 'rows' ? 'Rows to freeze' : 'Columns to freeze'}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={count}
+                onChange={(e) => setCount(Math.max(1, parseInt(e.target.value) || 1))}
+                className={[
+                  'w-full h-7 px-2 text-sm rounded-sm',
+                  'bg-paper border border-line focus:border-line-strong',
+                  'focus-visible:outline-none',
+                ].join(' ')}
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => freeze(mode === 'rows' ? 'row' : 'column', mode === 'rows' ? count : 0, mode === 'cols' ? count : 0)}
+                  className="flex-1 h-7 rounded-sm bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
+                >
+                  Apply
+                </button>
+                <button
+                  onClick={() => setMode(null)}
+                  className="h-7 px-2 rounded-sm border border-line text-xs text-ink-muted hover:border-line-strong transition-colors"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── CellCommentPanel ─────────────────────────────────────────────────────────
+function CellCommentPanel({ data, activeCell, onChange, onClose }) {
+  const sheet = data?.[0]
+  const existing = sheet?.celldata?.find(
+    (c) => c.r === activeCell.row && c.c === activeCell.col
+  )
+  const currentComment = existing?.v?.ps?.value || ''
+  const [text, setText] = useState(currentComment)
+
+  // Reset when active cell changes
+  useEffect(() => {
+    const cell = data?.[0]?.celldata?.find(
+      (c) => c.r === activeCell.row && c.c === activeCell.col
+    )
+    setText(cell?.v?.ps?.value || '')
+  }, [activeCell.row, activeCell.col]) // eslint-disable-line
+
+  const handleSave = () => {
+    onChange((prev) => {
+      const sheets = prev.map((sh, idx) => {
+        if (idx !== 0) return sh
+        const celldata = [...(sh.celldata || [])]
+        const cellIdx = celldata.findIndex((c) => c.r === activeCell.row && c.c === activeCell.col)
+        if (cellIdx >= 0) {
+          const cell = { ...celldata[cellIdx] }
+          const v = typeof cell.v === 'object' ? { ...cell.v } : { v: cell.v, m: String(cell.v ?? '') }
+          if (text.trim()) {
+            v.ps = { value: text.trim(), isShow: false }
+          } else {
+            delete v.ps
+          }
+          celldata[cellIdx] = { ...cell, v }
+        } else if (text.trim()) {
+          celldata.push({
+            r: activeCell.row,
+            c: activeCell.col,
+            v: { v: '', m: '', ct: { fa: 'General', t: 'n' }, ps: { value: text.trim(), isShow: false } },
+          })
+        }
+        return { ...sh, celldata }
+      })
+      return sheets
+    })
+    onClose()
+  }
+
+  const cellLabel = `${String.fromCharCode(65 + activeCell.col)}${activeCell.row + 1}`
+
+  return (
+    <div
+      className={[
+        'absolute right-4 top-4 z-40 w-72 bg-paper border border-line rounded-lg shadow-e3',
+        'flex flex-col animate-scale-in',
+      ].join(' ')}
+    >
+      <div className="flex items-center justify-between px-3 py-2 border-b border-line">
+        <span className="text-xs font-semibold text-ink">
+          Comment · <span className="text-ink-faint font-mono">{cellLabel}</span>
+        </span>
+        <button
+          onClick={onClose}
+          className="text-ink-faint hover:text-ink transition-colors"
+          aria-label="Close comment panel"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Add a comment…"
+        rows={4}
+        className={[
+          'flex-1 w-full p-3 text-sm bg-transparent border-none outline-none resize-none',
+          'text-ink placeholder:text-ink-faint',
+        ].join(' ')}
+        autoFocus
+      />
+      <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-line">
+        {currentComment && (
+          <button
+            onClick={() => { setText(''); handleSave() }}
+            className="text-xs text-danger hover:underline"
+          >
+            Delete
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className="h-7 px-3 rounded-sm border border-line text-xs text-ink-muted hover:border-line-strong transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          className="h-7 px-3 rounded-sm bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function SheetsEditor() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -49,14 +272,18 @@ export default function SheetsEditor() {
   const [showChartWizard,   setShowChartWizard]   = useState(false)
   const [showFindReplace,   setShowFindReplace]   = useState(false)
 
+  const [activeCell,      setActiveCell]      = useState({ row: 0, col: 0 })
+  const [showCellComment, setShowCellComment] = useState(false)
+
   const saveTimer   = useRef(null)
   const retryTimer  = useRef(null)
   const titleRef    = useRef(title)
   titleRef.current  = title
   const dataRef     = useRef(data)
   dataRef.current   = data
-  const gridSessionRef = useRef(null)
+  const gridSessionRef  = useRef(null)
   const workbookWrapRef = useRef(null)
+  const workbookRef     = useRef(null)
   const importInputRef  = useRef(null)
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
@@ -374,6 +601,12 @@ export default function SheetsEditor() {
         actions={
           <>
             {/* Toolbar shortcut buttons */}
+            <FreezePanel workbookRef={workbookRef} />
+            <Tooltip label="Cell comment">
+              <IconButton size="sm" active={showCellComment} onClick={() => setShowCellComment((v) => !v)}>
+                <MessageSquarePlus size={14} />
+              </IconButton>
+            </Tooltip>
             <Tooltip label="Find / Replace (Ctrl+F)">
               <IconButton size="sm" active={showFindReplace} onClick={() => setShowFindReplace((v) => !v)}>
                 <Search size={14} />
@@ -533,10 +766,30 @@ export default function SheetsEditor() {
           ref={workbookWrapRef}
         >
           <Workbook
+            ref={workbookRef}
             data={data}
             onChange={handleChange}
+            showFormulaBar={true}
+            hooks={{
+              afterSelectionChange: (_sheetId, selection) => {
+                if (selection?.row_focus !== undefined) {
+                  setActiveCell({ row: selection.row_focus, col: selection.column_focus })
+                }
+              },
+            }}
           />
           <SheetsCursorLayer remoteCursors={remoteCursors} getCellRect={getCellRect} />
+          {showCellComment && (
+            <CellCommentPanel
+              data={data}
+              activeCell={activeCell}
+              onChange={(updater) => {
+                const next = typeof updater === 'function' ? updater(data) : updater
+                handleChange(next)
+              }}
+              onClose={() => setShowCellComment(false)}
+            />
+          )}
           {showFindReplace && (
             <SheetsFindReplace
               data={data}

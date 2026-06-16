@@ -384,6 +384,13 @@ function OverflowMenu({ editor, title, onInsertToc }) {
       >
         <Type size={13} /> Footnote
       </MenuItem>
+      <MenuItem
+        onClick={() => editor.chain().focus().insertContent(
+          '<p style="page-break-after:always;border-top:2px dashed var(--line,#e2e8f0);margin:16px 0;padding-bottom:16px;" data-page-break="true"><br/></p>'
+        ).run()}
+      >
+        <Minus size={13} /> Page break
+      </MenuItem>
     </Dropdown>
   )
 }

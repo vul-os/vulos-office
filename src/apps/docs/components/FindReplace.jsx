@@ -5,10 +5,9 @@
  * Cmd+H  → opens in "find + replace" mode
  * Esc    → closes
  *
- * Highlights all matches in the document using TipTap's built-in search
- * (via editor.commands.setSearchTerm / editor.commands.nextSearchResult /
- * editor.commands.previousSearchResult) if the SearchAndReplace extension is
- * present, or falls back to a manual DOM-mark approach.
+ * Highlights ALL matches in the document canvas using ProseMirror decorations
+ * (registered via editor.registerPlugin). The current match uses a brighter
+ * highlight class. Also supports regex mode via the .* toggle.
  *
  * Props:
  *   editor      {Editor}   TipTap editor instance
@@ -18,17 +17,42 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, ChevronUp, ChevronDown, Replace, ReplaceAll } from 'lucide-react'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
+// ---------------------------------------------------------------------------
+// Inject highlight styles once into document head
+// ---------------------------------------------------------------------------
+if (typeof document !== 'undefined') {
+  const styleId = 'vulos-find-highlight-styles'
+  if (!document.getElementById(styleId)) {
+    const s = document.createElement('style')
+    s.id = styleId
+    s.textContent = `
+      .find-highlight { background: rgba(255, 213, 0, 0.45); border-radius: 2px; }
+      .find-highlight-current { background: rgba(255, 140, 0, 0.65); border-radius: 2px; outline: 1px solid rgba(255, 140, 0, 0.8); }
+    `
+    document.head.appendChild(s)
+  }
+}
+
+// Key name for the find-highlight plugin (registered in DocsEditor)
+export const FIND_HIGHLIGHT_PLUGIN_KEY_NAME = 'findHighlight'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function findAllMatches(doc, term, caseSensitive) {
+export function findAllMatches(doc, term, caseSensitive, useRegex) {
   if (!term) return []
   const fullText = doc.textContent || ''
   const flags = caseSensitive ? 'g' : 'gi'
   let re
-  try { re = new RegExp(escapeRegex(term), flags) } catch { return [] }
+  try {
+    re = new RegExp(useRegex ? term : escapeRegex(term), flags)
+  } catch { return [] }
   const matches = []
   let m
   while ((m = re.exec(fullText)) !== null) {
@@ -38,36 +62,107 @@ function findAllMatches(doc, term, caseSensitive) {
   return matches
 }
 
+function buildDecorations(doc, matches, currentIdx) {
+  if (!matches || matches.length === 0) return DecorationSet.empty
+  const decos = []
+  let textOffset = 0
+  let matchIdx = 0
+  doc.descendants((node, pos) => {
+    if (!node.isText) return
+    const nodeText = node.text
+    while (matchIdx < matches.length) {
+      const m = matches[matchIdx]
+      const localStart = m.index - textOffset
+      if (localStart < 0) { matchIdx++; continue }
+      if (localStart >= nodeText.length) break
+      const localEnd = localStart + m.length
+      if (localEnd > nodeText.length) break // spans multiple nodes — skip
+      const from = pos + localStart
+      const to = pos + localEnd
+      const cls = matchIdx === currentIdx
+        ? 'find-highlight find-highlight-current'
+        : 'find-highlight'
+      decos.push(Decoration.inline(from, to, { class: cls }))
+      matchIdx++
+    }
+    textOffset += nodeText.length
+  })
+  return DecorationSet.create(doc, decos)
+}
+
+// Dispatch highlight decorations via the plugin pre-registered in DocsEditor.
+// If the plugin is not present (e.g. in tests), this is a no-op.
+function applyHighlights(editor, matches, currentIdx) {
+  try {
+    const pluginKey = editor.view?.state?.plugins?.find?.(
+      (p) => p.spec?.key?.key === FIND_HIGHLIGHT_PLUGIN_KEY_NAME + '$'
+        || (p.key && typeof p.key === 'string' && p.key.startsWith(FIND_HIGHLIGHT_PLUGIN_KEY_NAME))
+    )
+    if (!pluginKey) return
+    const set = buildDecorations(editor.state.doc, matches, currentIdx)
+    const tr = editor.state.tr.setMeta(FIND_HIGHLIGHT_PLUGIN_KEY_NAME, set)
+    editor.view.dispatch(tr)
+  } catch { /* non-fatal: plugin may not be registered */ }
+}
+
+function clearHighlights(editor) {
+  try {
+    const tr = editor.state.tr.setMeta(FIND_HIGHLIGHT_PLUGIN_KEY_NAME, DecorationSet.empty)
+    editor.view.dispatch(tr)
+  } catch { /* non-fatal */ }
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export default function FindReplace({ editor, mode: initialMode, onClose }) {
   const [mode, setMode] = useState(initialMode || 'find')
   const [term, setTerm] = useState('')
   const [replace, setReplace] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [useRegex, setUseRegex] = useState(false)
+  const [regexError, setRegexError] = useState(false)
   const [matches, setMatches] = useState([])
   const [current, setCurrent] = useState(0)
   const termRef = useRef(null)
 
+  // Clear highlights when the bar is unmounted
+  useEffect(() => {
+    return () => { if (editor) clearHighlights(editor) }
+  }, [editor])
+
   // Focus the search input on mount
   useEffect(() => { termRef.current?.focus() }, [])
 
-  // Re-compute matches whenever term or case changes
+  // Re-compute matches whenever term, case, or regex mode changes
   useEffect(() => {
     if (!editor || !term) {
       setMatches([])
       setCurrent(0)
+      setRegexError(false)
+      if (editor) clearHighlights(editor)
       return
     }
-    const found = findAllMatches(editor.state.doc, term, caseSensitive)
+    // Validate regex if in regex mode
+    if (useRegex) {
+      try { new RegExp(term) } catch {
+        setRegexError(true); setMatches([]); setCurrent(-1)
+        clearHighlights(editor); return
+      }
+    }
+    setRegexError(false)
+    const found = findAllMatches(editor.state.doc, term, caseSensitive, useRegex)
     setMatches(found)
-    setCurrent(found.length > 0 ? 0 : -1)
-  }, [term, caseSensitive, editor])
+    const idx = found.length > 0 ? 0 : -1
+    setCurrent(idx)
+    applyHighlights(editor, found, idx)
+  }, [term, caseSensitive, useRegex, editor])
 
   // Scroll to and select the current match
   const selectMatch = useCallback((idx, matchList) => {
     const m = matchList ?? matches
     if (!editor || m.length === 0 || idx < 0) return
     const match = m[idx]
-    // Walk the doc to find the ProseMirror position for the text offset
     let pos = 0
     let found = false
     editor.state.doc.descendants((node, nodePos) => {
@@ -90,6 +185,7 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
     const next = (current + 1) % matches.length
     setCurrent(next)
     selectMatch(next)
+    applyHighlights(editor, matches, next)
   }
 
   const goPrev = () => {
@@ -97,6 +193,7 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
     const prev = (current - 1 + matches.length) % matches.length
     setCurrent(prev)
     selectMatch(prev)
+    applyHighlights(editor, matches, prev)
   }
 
   const doReplace = () => {
@@ -106,32 +203,29 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
       editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, replace).run()
     }
     // Recompute + advance
-    const newMatches = findAllMatches(editor.state.doc, term, caseSensitive)
+    const newMatches = findAllMatches(editor.state.doc, term, caseSensitive, useRegex)
     setMatches(newMatches)
     const next = Math.min(current, newMatches.length - 1)
     setCurrent(next)
     selectMatch(next, newMatches)
+    applyHighlights(editor, newMatches, next)
   }
 
   const doReplaceAll = () => {
     if (!editor || !term) return
     const flags = caseSensitive ? 'g' : 'gi'
     let re
-    try { re = new RegExp(escapeRegex(term), flags) } catch { return }
-    // Walk doc in reverse to avoid offset drift
+    try { re = new RegExp(useRegex ? term : escapeRegex(term), flags) } catch { return }
     const { doc } = editor.state
     const edits = []
-    let textOffset = 0
     doc.descendants((node, pos) => {
       if (!node.isText) return
-      let m
       re.lastIndex = 0
+      let m
       while ((m = re.exec(node.text)) !== null) {
         edits.push({ from: pos + m.index, to: pos + m.index + m[0].length })
       }
-      textOffset += node.text.length
     })
-    // Apply in reverse order
     let chain = editor.chain().focus()
     for (let i = edits.length - 1; i >= 0; i--) {
       const e = edits[i]
@@ -140,6 +234,7 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
     chain.run()
     setMatches([])
     setCurrent(-1)
+    clearHighlights(editor)
   }
 
   const handleKeyDown = (e) => {
@@ -151,9 +246,11 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
   }
 
   const countLabel = term
-    ? matches.length === 0
-      ? 'No results'
-      : `${current + 1} / ${matches.length}`
+    ? regexError
+      ? 'Invalid regex'
+      : matches.length === 0
+        ? 'No results'
+        : `${current + 1} / ${matches.length}`
     : ''
 
   return (
@@ -176,11 +273,16 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
           onKeyDown={handleKeyDown}
           placeholder="Find…"
           aria-label="Search term"
-          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-ink placeholder:text-ink-faint"
+          className={[
+            'flex-1 min-w-0 text-sm bg-transparent outline-none placeholder:text-ink-faint',
+            regexError ? 'text-danger' : 'text-ink',
+          ].join(' ')}
         />
         {/* Count indicator */}
         {countLabel && (
-          <span className="text-2xs text-ink-faint flex-shrink-0 tabular-nums">{countLabel}</span>
+          <span className={`text-2xs flex-shrink-0 tabular-nums ${regexError ? 'text-danger' : 'text-ink-faint'}`}>
+            {countLabel}
+          </span>
         )}
         {/* Case sensitive */}
         <button
@@ -190,6 +292,15 @@ export default function FindReplace({ editor, mode: initialMode, onClose }) {
           aria-pressed={caseSensitive}
         >
           Aa
+        </button>
+        {/* Regex mode */}
+        <button
+          title="Use regular expression"
+          onClick={() => setUseRegex((v) => !v)}
+          className={`flex-shrink-0 w-6 h-6 rounded-sm flex items-center justify-center text-2xs font-mono font-bold transition-colors ${useRegex ? 'bg-accent text-white' : 'text-ink-faint hover:bg-bg-elev2'} ${regexError ? 'outline outline-1 outline-danger' : ''}`}
+          aria-pressed={useRegex}
+        >
+          .*
         </button>
         {/* Prev / Next */}
         <button
