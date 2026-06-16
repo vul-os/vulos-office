@@ -104,7 +104,7 @@ func allSigned(env *models.Envelope) bool {
 // ------------------------------------------------------------
 // Returns the sealed PDF (generating it on first request; idempotent thereafter).
 func (h *SealHandler) Download(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
@@ -182,7 +182,7 @@ func (h *SealHandler) Download(c *gin.Context) {
 // Manifest — GET /api/sign/:envelopeId/manifest
 // Returns the raw JSON audit manifest for machine verification.
 func (h *SealHandler) Manifest(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {

@@ -76,7 +76,7 @@ type EnvelopeStatusResponse struct {
 //
 // AC: status endpoint reflects each signer.
 func (h *OrchestrationHandler) Status(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
@@ -119,7 +119,7 @@ func (h *OrchestrationHandler) Status(c *gin.Context) {
 //
 // AC: reminder hooks (log/notify) for pending signers; honest "no mailer" response.
 func (h *OrchestrationHandler) Remind(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
@@ -229,7 +229,7 @@ func emitReminder(env *models.Envelope, sg *models.Signer) (bool, error) {
 //
 // AC: cancel/expire envelopes.
 func (h *OrchestrationHandler) Cancel(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
@@ -278,7 +278,7 @@ func (h *OrchestrationHandler) Cancel(c *gin.Context) {
 //
 // AC: decline terminates envelope with audit event.
 func (h *OrchestrationHandler) Decline(c *gin.Context) {
-	token := c.Param("token")
+	token := c.Param("id")
 
 	envelopeID, signerID, err := h.store.ResolveToken(token)
 	if err != nil {

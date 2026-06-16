@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"vulos-office/backend/config"
 	"vulos-office/backend/handlers"
@@ -207,24 +208,28 @@ func main() {
 	// OFFICE-42: signing link generation + scoped signer view.
 	// Send is protected (only the document owner can issue tokens).
 	// GetSignerView and Complete are public — no Vulos account required.
+	//
+	// All /sign/:id routes share a single wildcard param name "id" to avoid gin's
+	// "conflicting wildcard" panic — handlers distinguish tokens from envelope IDs
+	// by value format (tokens are long UUIDs; envelope IDs are short strings).
 	signingHandler := handlers.NewSigningHandler(store)
-	protected.POST("/sign/:envelopeId/send", signingHandler.Send)
-	api.GET("/sign/:token", signingHandler.GetSignerView)
+	protected.POST("/sign/:id/send", signingHandler.Send)
+	api.GET("/sign/:id", signingHandler.GetSignerView)
 	// OFFICE-43: signer ceremony submission.
-	api.POST("/sign/:token/complete", signingHandler.Complete)
+	api.POST("/sign/:id/complete", signingHandler.Complete)
 
 	// OFFICE-45: multi-signer orchestration + reminders.
 	orchHandler := handlers.NewOrchestrationHandler(store)
-	api.GET("/sign/:envelopeId/status", orchHandler.Status)
-	protected.POST("/sign/:envelopeId/remind", orchHandler.Remind)
-	protected.POST("/sign/:envelopeId/cancel", orchHandler.Cancel)
-	api.POST("/sign/:token/decline", orchHandler.Decline)
+	api.GET("/sign/:id/status", orchHandler.Status)
+	protected.POST("/sign/:id/remind", orchHandler.Remind)
+	protected.POST("/sign/:id/cancel", orchHandler.Cancel)
+	api.POST("/sign/:id/decline", orchHandler.Decline)
 
 	// OFFICE-46: sealed PDF download + audit manifest.
 	// Protected: only the document owner/authenticated users may download.
 	sealHandler := handlers.NewSealHandler(store, cfg.Server.UploadsDir)
-	protected.GET("/sign/:envelopeId/download", sealHandler.Download)
-	protected.GET("/sign/:envelopeId/manifest", sealHandler.Manifest)
+	protected.GET("/sign/:id/download", sealHandler.Download)
+	protected.GET("/sign/:id/manifest", sealHandler.Manifest)
 
 	// OFFICE-47: signature + audit verification tool (public — no auth required).
 	verifyHandler := handlers.NewVerifyHandler(store)
@@ -357,15 +362,18 @@ func main() {
 	staticServer := http.FileServer(http.FS(staticFS))
 
 	r.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
-		// Try to open the path as a file in staticFS
-		f, err := staticFS.Open(path)
+		urlPath := c.Request.URL.Path
+		// fs.FS requires paths without a leading slash.
+		// Strip it before probing, then let http.FileServer handle the request
+		// (which re-adds the slash internally).
+		fsPath := strings.TrimPrefix(urlPath, "/")
+		f, err := staticFS.Open(fsPath)
 		if err == nil {
 			f.Close()
 			staticServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}
-		// SPA fallback: serve index.html
+		// SPA fallback: serve index.html for unknown routes (React Router)
 		c.Request.URL.Path = "/"
 		staticServer.ServeHTTP(c.Writer, c.Request)
 	})

@@ -46,7 +46,7 @@ func NewSigningHandlerWithAuthz(store storage.Storage, authz *FileAuthz) *Signin
 //
 // AC: send issues one scoped token per signer.
 func (h *SigningHandler) Send(c *gin.Context) {
-	envelopeID := c.Param("envelopeId")
+	envelopeID := c.Param("id")
 
 	env, err := h.store.GetEnvelope(envelopeID)
 	if err != nil {
@@ -134,7 +134,7 @@ func (h *SigningHandler) Send(c *gin.Context) {
 //   - open logs a "viewed" audit event
 //   - out-of-order signer link → 403/locked
 func (h *SigningHandler) GetSignerView(c *gin.Context) {
-	token := c.Param("token")
+	token := c.Param("id")
 
 	// Resolve token to envelope + signer.
 	envelopeID, signerID, err := h.store.ResolveToken(token)
@@ -238,7 +238,7 @@ func (h *SigningHandler) GetSignerView(c *gin.Context) {
 //   - before/after hashes recorded per signer
 //   - identity captured (Vulos account or link)
 func (h *SigningHandler) Complete(c *gin.Context) {
-	token := c.Param("token")
+	token := c.Param("id")
 
 	// Resolve token to envelope + signer.
 	envelopeID, signerID, err := h.store.ResolveToken(token)

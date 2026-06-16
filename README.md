@@ -15,6 +15,8 @@
 
 *Vulos — rooted in **vula**, the Zulu and Xhosa word for **open**.*
 
+<sub>Part of the <strong><a href="https://vulos.org">Vulos</a></strong> OS suite &nbsp;<img src="docs/assets/vulos-logo.png" alt="Vulos" height="16" style="vertical-align:middle" /></sub>
+
 ![Vulos Office](docs/screenshots/hero.png)
 
 </div>
@@ -181,7 +183,7 @@ npm run build:lib
 npm run screenshots
 ```
 
-Captures all app surfaces at 1440×900 into `docs/screenshots/`. Requires the dev server to be running (or set `BASE_URL` to point at a live instance). See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for details.
+Builds and starts a temporary Go server seeded with demo data (Spaces channels, calendar events, contacts, meetings, and sample docs/sheets/slides), captures all app surfaces at 1440×900, then stops the server. No separate dev server required. See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for details.
 
 ---
 

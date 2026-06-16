@@ -90,21 +90,21 @@ func (s *sealStack) protectedRouter(user string, admin bool) *gin.Engine {
 	r.POST("/envelopes", s.env.Create)
 	r.PUT("/envelopes/:id", s.env.Update)
 	r.DELETE("/envelopes/:id", s.env.Delete)
-	r.POST("/sign/:envelopeId/send", s.sign.Send)
-	r.GET("/sign/:envelopeId/status", s.orch.Status)
-	r.POST("/sign/:envelopeId/remind", s.orch.Remind)
-	r.POST("/sign/:envelopeId/cancel", s.orch.Cancel)
-	r.GET("/sign/:envelopeId/download", s.seal.Download)
-	r.GET("/sign/:envelopeId/manifest", s.seal.Manifest)
+	r.POST("/sign/:id/send", s.sign.Send)
+	r.GET("/sign/:id/status", s.orch.Status)
+	r.POST("/sign/:id/remind", s.orch.Remind)
+	r.POST("/sign/:id/cancel", s.orch.Cancel)
+	r.GET("/sign/:id/download", s.seal.Download)
+	r.GET("/sign/:id/manifest", s.seal.Manifest)
 	return r
 }
 
 // publicSignRouter wires the token-scoped public routes.
 func (s *sealStack) publicSignRouter() *gin.Engine {
 	r := gin.New()
-	r.GET("/sign/:token", s.sign.GetSignerView)
-	r.POST("/sign/:token/complete", s.sign.Complete)
-	r.POST("/sign/:token/decline", s.orch.Decline)
+	r.GET("/sign/:id", s.sign.GetSignerView)
+	r.POST("/sign/:id/complete", s.sign.Complete)
+	r.POST("/sign/:id/decline", s.orch.Decline)
 	return r
 }
 

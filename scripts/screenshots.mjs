@@ -4,60 +4,66 @@
  *
  * Captures every major app surface at 1440×900 into docs/screenshots/.
  *
+ * Default (local) mode:
+ *   1. Writes static seed files to /tmp/vulos-demo-data
+ *   2. Builds the Go binary (which embeds the compiled frontend via //go:embed)
+ *   3. Starts it on port 8083 pointed at the demo data dir
+ *   4. Calls the seed REST API for Spaces / Calendar / Contacts / Meetings
+ *   5. Captures all screenshots
+ *   6. Stops the server
+ *
  * Usage:
  *   npm run screenshots
  *   BASE_URL=https://office.example.com npm run screenshots
+ *   BASE_URL=https://office.example.com npm run screenshots -- --seed
  *
  * Prerequisites:
- *   npm install
+ *   npm install && npm run build     (builds the frontend into dist/)
  *   npx playwright install chromium
- *
- * The dev server must be running (npm run dev:web) unless BASE_URL points
- * at a live instance.
  */
 
 import { chromium } from 'playwright'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { spawn, execSync } from 'node:child_process'
+
+import { seedStaticFiles, seedViaAPI, DEMO_DATA_DIR } from './seed-demo.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '..')
-const OUT = path.join(ROOT, 'docs', 'screenshots')
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5173'
+const ROOT       = path.resolve(__dirname, '..')
+const OUT        = path.join(ROOT, 'docs', 'screenshots')
 
-// Routes to capture.
-// name        → output filename (without .png)
-// path        → URL path relative to BASE_URL
-// waitFor     → optional CSS selector to wait for before capturing
-// description → logged to console
+const EXTERNAL_URL = process.env.BASE_URL
+const FORCE_SEED   = process.argv.includes('--seed')
+
+// Use port 8083 so we don't collide with a running dev server on :8080/:8082
+const LOCAL_PORT   = 8083
+const LOCAL_BASE   = `http://localhost:${LOCAL_PORT}`
+
+const SCREENSHOT_BASE = EXTERNAL_URL ?? LOCAL_BASE
+const API_SEED_BASE   = EXTERNAL_URL ?? LOCAL_BASE
+
+// ── Routes to capture ─────────────────────────────────────────────────────────
 const ROUTES = [
-  {
-    name: 'hero',
-    path: '/',
-    description: 'Home (hero shot)',
-  },
-  {
-    name: 'home',
-    path: '/',
-    description: 'Home / file list',
-  },
+  { name: 'hero',          path: '/',               description: 'Home (hero shot)' },
+  { name: 'home',          path: '/',               description: 'Home / file list' },
   {
     name: 'docs-editor',
     path: '/docs/demo',
-    description: 'Documents editor',
+    description: 'Documents editor — Q2 Product Update',
     waitFor: '.ProseMirror, [data-testid="docs-editor"], .tiptap',
   },
   {
     name: 'sheets-editor',
-    path: '/sheets/demo',
-    description: 'Spreadsheets editor',
+    path: '/sheets/demo-sheet',
+    description: 'Spreadsheets editor — Revenue Tracker',
     waitFor: '.fortune-sheet-container, [data-testid="sheets-editor"], canvas',
   },
   {
     name: 'slides-editor',
-    path: '/slides/demo',
-    description: 'Presentations editor',
+    path: '/slides/demo-slides',
+    description: 'Presentations editor — Product Overview',
     waitFor: '.reveal, [data-testid="slides-editor"]',
   },
   {
@@ -69,43 +75,127 @@ const ROUTES = [
   {
     name: 'spaces',
     path: '/spaces',
-    description: 'Vulos Spaces (channels)',
+    description: 'Vulos Spaces (channels + messages)',
     waitFor: '[data-testid="spaces-app"], .spaces-sidebar, [class*="spaces"]',
   },
   {
     name: 'calendar',
     path: '/calendar',
-    description: 'Calendar',
-    waitFor: '[data-testid="calendar-app"], .calendar-grid, [class*="calendar"]',
+    description: 'Calendar — weekly view with events',
+    waitFor: '[data-testid="calendar-app"], .calendar-grid, [class*="calendar"], .fc',
   },
   {
     name: 'contacts',
     path: '/contacts',
-    description: 'Contacts',
+    description: 'Contacts — populated list',
     waitFor: '[data-testid="contacts-app"], [class*="contacts"]',
   },
   {
     name: 'meetings',
     path: '/meetings',
-    description: 'Meetings list',
+    description: 'Meetings — scheduled list',
     waitFor: '[data-testid="meetings"], [class*="meeting"]',
   },
 ]
 
+// ── Local server management ───────────────────────────────────────────────────
+
+let serverProc = null
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+async function waitForHTTP(url, maxMs = 45_000) {
+  const deadline = Date.now() + maxMs
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(1_500) })
+      if (r.status < 600) return
+    } catch { /* not yet */ }
+    await sleep(500)
+  }
+  throw new Error(`${url} did not become ready within ${maxMs}ms`)
+}
+
+async function startLocalServer() {
+  console.log('\n  setting up demo environment …')
+
+  // 1. Write static JSON seed files (docs / sheets / slides)
+  seedStaticFiles()
+
+  // 2. Ensure the frontend is built (dist/ must exist with index.html)
+  if (!existsSync(path.join(ROOT, 'dist', 'index.html'))) {
+    console.log('  building frontend (dist/) …')
+    execSync('npm run build:frontend', { cwd: ROOT, stdio: 'pipe' })
+    console.log('  frontend built')
+  }
+
+  // 3. Build Go binary
+  const binPath = '/tmp/vulos-office-screenshots-bin'
+  console.log('  building Go binary …')
+  execSync(`go build -o "${binPath}" .`, { cwd: ROOT, stdio: 'pipe' })
+  console.log('  Go binary built')
+
+  // 4. Write a minimal config.yaml into a temp workdir
+  const tmpWD = '/tmp/vulos-office-ss-wd'
+  mkdirSync(tmpWD, { recursive: true })
+  mkdirSync(`${DEMO_DATA_DIR}/uploads`, { recursive: true })
+  writeFileSync(`${tmpWD}/config.yaml`, [
+    'server:',
+    `  addr: ":${LOCAL_PORT}"`,
+    `  data_dir: "${DEMO_DATA_DIR}"`,
+    `  uploads_dir: "${DEMO_DATA_DIR}/uploads"`,
+    'auth:',
+    '  enabled: false',
+    'storage:',
+    '  type: "local"',
+  ].join('\n') + '\n')
+
+  // 5. Start the Go server (it serves both API + embedded frontend)
+  serverProc = spawn(binPath, [], {
+    cwd: tmpWD,
+    env: {
+      ...process.env,
+      VULOS_CALSTORE_DB:     `${DEMO_DATA_DIR}/cal.db`,
+      VULOS_CONTACTSTORE_DB: `${DEMO_DATA_DIR}/contacts.db`,
+      VULOS_LOBBY_DB:        `${DEMO_DATA_DIR}/lobby.db`,
+      VULOS_SPACES_DB:       `${DEMO_DATA_DIR}/spaces.db`,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  serverProc.stdout.on('data', d => process.stdout.write(`  [go] ${d}`))
+  serverProc.stderr.on('data', d => process.stdout.write(`  [go] ${d}`))
+  serverProc.on('exit', code => { if (code !== null && code > 0) console.warn(`  [go] exited with code ${code}`) })
+
+  // 6. Wait for the server to be ready
+  await waitForHTTP(`${LOCAL_BASE}/version`)
+  console.log(`  server ready at ${LOCAL_BASE}`)
+
+  // 7. Seed Spaces / Calendar / Contacts / Meetings via API
+  await seedViaAPI(LOCAL_BASE)
+
+  // Brief pause for SQLite writes to flush
+  await sleep(1_000)
+}
+
+function stopLocalServer() {
+  if (serverProc) { try { serverProc.kill() } catch {} ; serverProc = null }
+}
+
+// ── Screenshot capture ────────────────────────────────────────────────────────
+
 async function capture(page, route) {
-  const url = `${BASE_URL}${route.path}`
-  console.log(`  → ${route.description} (${url})`)
+  const url = `${SCREENSHOT_BASE}${route.path}`
+  console.log(`  → ${route.description}`)
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15_000 })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20_000 })
 
-    // Try to wait for a specific element, fall back to networkidle
     if (route.waitFor) {
       try {
-        await page.waitForSelector(route.waitFor, { timeout: 8_000 })
+        await page.waitForSelector(route.waitFor, { timeout: 10_000 })
       } catch {
-        // Element not found — still capture what's visible
-        await page.waitForTimeout(2_000)
+        // Element not present — still capture what's visible
+        await page.waitForTimeout(3_000)
       }
     } else {
       try {
@@ -115,8 +205,8 @@ async function capture(page, route) {
       }
     }
 
-    // Brief pause for any CSS transitions / layout shifts
-    await page.waitForTimeout(500)
+    // Extra pause for CSS transitions / async renders
+    await page.waitForTimeout(800)
 
     const outPath = path.join(OUT, `${route.name}.png`)
     await page.screenshot({ path: outPath, fullPage: false })
@@ -128,13 +218,25 @@ async function capture(page, route) {
   }
 }
 
+// ── Main ──────────────────────────────────────────────────────────────────────
+
 async function main() {
   mkdirSync(OUT, { recursive: true })
 
-  console.log(`\nVulos Office screenshotter`)
-  console.log(`  base URL : ${BASE_URL}`)
-  console.log(`  output   : ${path.relative(ROOT, OUT)}/`)
-  console.log(`  viewport : 1440×900\n`)
+  const usingExternal = Boolean(EXTERNAL_URL)
+
+  console.log('\nVulos Office screenshotter')
+  console.log(`  screenshots → ${SCREENSHOT_BASE}`)
+  console.log(`  output      : ${path.relative(ROOT, OUT)}/`)
+  console.log(`  viewport    : 1440×900`)
+  console.log(`  seed mode   : ${usingExternal ? (FORCE_SEED ? 'forced (--seed)' : 'skipped') : 'auto (local server)'}`)
+
+  if (!usingExternal) {
+    await startLocalServer()
+  } else if (FORCE_SEED) {
+    seedStaticFiles()
+    await seedViaAPI(EXTERNAL_URL)
+  }
 
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({
@@ -143,8 +245,6 @@ async function main() {
     locale: 'en-US',
   })
   const page = await context.newPage()
-
-  // Silence console noise from the app
   page.on('console', () => {})
   page.on('pageerror', () => {})
 
@@ -155,41 +255,52 @@ async function main() {
   }
 
   await browser.close()
+  stopLocalServer()
 
-  // Summary
-  const ok = results.filter(r => r.status === 'ok')
+  const ok     = results.filter(r => r.status === 'ok')
   const failed = results.filter(r => r.status === 'failed')
 
   console.log(`\nDone — ${ok.length} captured, ${failed.length} failed`)
   if (failed.length > 0) {
-    console.log('\nFailed routes (need live backend or data):')
-    for (const r of failed) {
-      console.log(`  ${r.name}: ${r.error}`)
-    }
+    console.log('\nFailed routes:')
+    for (const r of failed) console.log(`  ${r.name}: ${r.error}`)
   }
 
-  // Write a README into the screenshots dir
+  // Write per-directory README
   const notes = [
     '# docs/screenshots',
     '',
     'Generated by `npm run screenshots` (scripts/screenshots.mjs).',
+    'Populated with realistic demo data from `scripts/seed-demo.mjs`.',
     '',
     '| File | Surface | Status |',
     '|------|---------|--------|',
     ...results.map(r =>
-      `| ${r.name}.png | ${ROUTES.find(rt => rt.name === r.name)?.description ?? r.name} | ${r.status === 'ok' ? 'captured' : 'needs live instance'} |`
+      `| ${r.name}.png | ${ROUTES.find(rt => rt.name === r.name)?.description ?? r.name} | ${r.status === 'ok' ? 'populated' : 'needs live instance'} |`
     ),
     '',
     'To regenerate: `npm run screenshots`',
-    'To capture against a live instance: `BASE_URL=https://... npm run screenshots`',
+    'Against a live instance: `BASE_URL=https://... npm run screenshots`',
+    '',
+    '## Seed data',
+    '',
+    '- **Docs** `demo`: "Q2 2026 Product Update" — prose, table, bullet lists',
+    '- **Sheets** `demo-sheet`: "Revenue Tracker H1 2026" — 6 months, SUM + margin formulas, 2 sheets',
+    '- **Slides** `demo-slides`: "Vulos Office Product Overview" — 5 slides, Reveal.js obsidian theme',
+    '- **Spaces**: #general, #engineering, #design channels with realistic messages',
+    '- **Calendar**: 6 events this week (standup, all-hands, design sync, sprint planning, 1:1, arch review)',
+    '- **Contacts**: 6 contacts with emails, phones, and notes',
+    '- **Meetings**: 4 scheduled meetings (Q2 all-hands, arch review, design sync, investor call)',
   ].join('\n')
+
   writeFileSync(path.join(OUT, 'README.md'), notes + '\n')
-  console.log(`  wrote docs/screenshots/README.md\n`)
+  console.log('  wrote docs/screenshots/README.md\n')
 
   if (failed.length > 0) process.exit(1)
 }
 
 main().catch(err => {
+  stopLocalServer()
   console.error('Fatal:', err)
   process.exit(1)
 })
