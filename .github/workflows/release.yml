@@ -3,10 +3,14 @@
 # Triggers on:  push of a tag matching v* (e.g. v1.0.0, v1.2.3-rc.1)
 #
 # Jobs:
-#   release  — cross-compile the Go binary (linux/amd64 + linux/arm64),
-#              build the @vulos/office-client library, generate SHA-256
-#              checksums, create a GitHub Release with all artifacts,
-#              and optionally publish to npm (gated on NPM_TOKEN secret).
+#   build-and-test  — build frontend + backend, run all tests, cross-compile
+#                     the Go binary (linux/amd64 + linux/arm64), verify that
+#                     the tag version matches package.json, generate SHA-256
+#                     checksums, and upload artifacts.
+#   check-npm-token — probe whether NPM_TOKEN is available (secrets cannot be
+#                     read in `if:` expressions directly).
+#   publish-npm     — publish @vulos/office-client to npm (gated on NPM_TOKEN).
+#   github-release  — create a GitHub Release with notes + all artifacts.
 
 name: Release
 
@@ -15,20 +19,20 @@ on:
     tags:
       - 'v*'
 
-# Write access needed to create the GitHub Release.
 permissions:
-  contents: write
+  contents: write   # create GitHub Releases + upload assets
+  id-token: write   # npm --provenance (OIDC)
 
 jobs:
 
-  release:
-    name: Build + publish release
-    runs-on: ubuntu-latest
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-24.04
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────────
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
 
@@ -46,13 +50,18 @@ jobs:
           cache: npm
           registry-url: 'https://registry.npmjs.org'
 
-      # ── Derive version string from the pushed tag ─────────────────────────────
-      - name: Set version
-        id: version
+      # ── Verify tag == package.json version ────────────────────────────────────
+      # Example: tag v1.2.3 must match "version": "1.2.3" so we never publish a
+      # mismatched package.
+      - name: Check tag/package version match
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Building release ${VERSION}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) != tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version check passed: $PKG_VERSION"
 
       # ── Frontend: full build + library build ──────────────────────────────────
       - name: Install npm dependencies
@@ -79,7 +88,7 @@ jobs:
         run: |
           go build \
             -trimpath \
-            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" \
+            -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" \
             -o vulos-office-linux-amd64 \
             .
 
@@ -91,9 +100,14 @@ jobs:
         run: |
           go build \
             -trimpath \
-            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" \
+            -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" \
             -o vulos-office-linux-arm64 \
             .
+
+      # ── Archive dist-lib so the publish + release jobs can use it ─────────────
+      - name: Archive dist-lib
+        run: |
+          tar -czf office-client-${GITHUB_REF_NAME}-dist.tar.gz dist-lib/
 
       # ── Checksums ─────────────────────────────────────────────────────────────
       - name: Generate SHA-256 checksums
@@ -104,22 +118,99 @@ jobs:
             > checksums.txt
           cat checksums.txt
 
-      # ── GitHub Release ─────────────────────────────────────────────────────────
-      - name: Create GitHub Release
+      # ── Upload artifacts for downstream jobs ──────────────────────────────────
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            vulos-office-linux-amd64
+            vulos-office-linux-arm64
+            checksums.txt
+          retention-days: 1
+
+      - name: Upload dist-lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-lib
+          path: office-client-${{ github.ref_name }}-dist.tar.gz
+          retention-days: 1
+
+  # ── Probe for NPM_TOKEN before gating the publish job ─────────────────────────
+  # Secrets cannot be read in `if:` expressions directly — map to an output
+  # first, then condition the publish job on that output.
+  check-npm-token:
+    name: Check NPM_TOKEN availability
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    outputs:
+      has_token: ${{ steps.probe.outputs.has_token }}
+    steps:
+      - name: Probe for NPM_TOKEN
+        id: probe
+        run: |
+          if [ -n "$NPM_TOKEN_VAL" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          NPM_TOKEN_VAL: ${{ secrets.NPM_TOKEN }}
+
+  # ── Publish @vulos/office-client to npm ───────────────────────────────────────
+  publish-npm:
+    name: Publish to npm
+    needs: check-npm-token
+    runs-on: ubuntu-24.04
+    if: needs.check-npm-token.outputs.has_token == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Node (with npm registry auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build library
+        run: npm run build:lib
+
+      - name: Publish
+        # --provenance attaches an OIDC-signed build provenance attestation to
+        # the published package. Requires id-token: write at the workflow level.
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Create GitHub Release ─────────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+
+      - name: Download dist-lib artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-lib
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Vulos Office ${{ steps.version.outputs.version }}"
+          name: "Vulos Office ${{ github.ref_name }}"
           generate_release_notes: true
           files: |
             vulos-office-linux-amd64
             vulos-office-linux-arm64
             checksums.txt
-
-      # ── npm publish (gated — skip gracefully when secret is absent) ────────────
-      # Set the NPM_TOKEN repository secret to enable publishing @vulos/office-client.
-      - name: Publish @vulos/office-client to npm
-        if: ${{ env.NPM_TOKEN != '' }}
+            office-client-${{ github.ref_name }}-dist.tar.gz
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,7 +12,9 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+    branches: ["**"]
 
 # Restrict default permissions to read-only; no job needs write access.
 permissions:
