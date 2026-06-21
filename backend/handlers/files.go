@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"vulos-office/backend/audit"
+	"vulos-office/backend/billing"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -74,11 +75,35 @@ func (h *FileHandler) Create(c *gin.Context) {
 		return
 	}
 
+	account := requesterID(c)
+
+	// OFFICE ACCESS GATE: block file creation when the tier does not enable the
+	// office product (or the account is suspended). Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), account); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	file := &models.File{
 		ID:      uuid.New().String(),
 		Name:    req.Name,
 		Type:    req.Type,
 		Content: req.Content,
+	}
+
+	// STORAGE GATE: enforce the storage quota for the new document's content
+	// BEFORE persisting it. Standalone → unlimited → no-op.
+	var contentBytes []byte
+	if file.Content != nil {
+		if b, err := json.Marshal(file.Content); err == nil {
+			contentBytes = b
+		}
+	}
+	if n := int64(len(contentBytes)); n > 0 {
+		if d := billing.GateStorage(c.Request.Context(), account, n); !d.Allowed() {
+			c.JSON(d.Code, gin.H{"error": d.Reason})
+			return
+		}
 	}
 
 	if err := h.store.CreateFile(file); err != nil {
@@ -89,12 +114,15 @@ func (h *FileHandler) Create(c *gin.Context) {
 	h.authz.recordOwner(c, file.ID)
 
 	// Async write-through to org bucket when content is present.
-	if file.Content != nil {
-		if contentBytes, err := json.Marshal(file.Content); err == nil {
-			if err := SharedBucketStore().PutObject(requesterID(c), "file/"+file.ID, contentBytes, "application/json"); err != nil {
-				log.Printf("[files] bucket sync create file=%s: %v (SQLite is primary — continuing)", file.ID, err)
-			}
+	if contentBytes != nil {
+		if err := SharedBucketStore().PutObject(account, "file/"+file.ID, contentBytes, "application/json"); err != nil {
+			log.Printf("[files] bucket sync create file=%s: %v (SQLite is primary — continuing)", file.ID, err)
 		}
+	}
+
+	// METER: report the storage usage after a successful create.
+	if n := int64(len(contentBytes)); n > 0 {
+		billing.MeterStorage(c.Request.Context(), account, n)
 	}
 
 	c.JSON(http.StatusCreated, file)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/config"
 
 	"github.com/gin-gonic/gin"
@@ -59,10 +60,22 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		return
 	}
 
+	// STORAGE GATE: enforce the account's storage quota BEFORE writing the file
+	// (server-side, on the verified account id, before resource issuance). In
+	// standalone mode the cap is unlimited, so this is a no-op.
+	account := requesterID(c)
+	if d := billing.GateStorage(c.Request.Context(), account, int64(n)); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	if err := os.WriteFile(dst, buf[:n], 0644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
 		return
 	}
+
+	// METER: report the storage usage after a successful write.
+	billing.MeterStorage(c.Request.Context(), account, int64(n))
 
 	c.JSON(http.StatusOK, gin.H{
 		"url":      fmt.Sprintf("/api/uploads/%s", filename),

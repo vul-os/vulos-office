@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/config"
 	"vulos-office/backend/handlers"
 	"vulos-office/backend/integration/cloud"
@@ -122,7 +123,11 @@ func main() {
 	} else {
 		log.Printf("[seam] integration mode: standalone (no control plane)")
 	}
-	_ = provider // available for handlers that adopt the seam (entitlements/usage)
+	// Install the active provider into the billing enforcement layer so handlers
+	// gate billable actions (storage, seats, office access) and emit usage. In
+	// standalone mode this is a no-op (unlimited, never suspended). The billing
+	// package imports only backend/seam, never the cloud adapter.
+	billing.Configure(provider)
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()

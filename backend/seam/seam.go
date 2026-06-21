@@ -77,14 +77,27 @@ type Entitlement struct {
 	// MaxFiles caps the number of files/documents. <=0 = unlimited.
 	MaxFiles int64
 
+	// MaxSeats caps the number of members/seats for the account/org. <=0 = unlimited.
+	MaxSeats int64
+
 	// MaxMeetingMinutes caps meeting minutes per period. <=0 = unlimited.
 	MaxMeetingMinutes int64
 
-	// Features is a set of optional feature flags ("recordings", "signing", ...).
-	// A nil/empty map in the standalone default means "all features enabled"
-	// (see Entitlements.Allowed).
+	// Suspended, when true, means the account is delinquent/disabled at the
+	// control plane: writes and invites must be blocked even if caps are not yet
+	// reached. The standalone default is always false.
+	Suspended bool
+
+	// Features is a set of optional feature flags ("office", "recordings",
+	// "signing", ...). A nil/empty map in the standalone default means "all
+	// features enabled" (see Entitlements.Allowed). An explicit false disables
+	// the named feature (e.g. features["office"] == false gates office access).
 	Features map[string]bool
 }
+
+// FeatureOffice is the feature flag that gates whether the office product is
+// enabled for an account's tier. Absent/true = enabled; explicit false = gated.
+const FeatureOffice = "office"
 
 // Unlimited reports whether the entitlement imposes no storage/file caps.
 func (e Entitlement) Unlimited() bool {
@@ -102,6 +115,15 @@ type Entitlements interface {
 	// returns true for everything.
 	Allowed(ctx context.Context, accountID, feature string) bool
 }
+
+// Metered dimensions. Kind values are part of the cp usage contract (the cloud
+// adapter maps these onto count/bytes).
+const (
+	// KindStorage meters bytes written to object/file storage.
+	KindStorage = "storage"
+	// KindSeats meters members/seats added to an account/org.
+	KindSeats = "seats"
+)
 
 // UsageEvent is a single metering data point.
 type UsageEvent struct {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"vulos-office/backend/audit"
+	"vulos-office/backend/billing"
 	"vulos-office/backend/invites"
 	"vulos-office/backend/middleware"
 
@@ -95,6 +96,25 @@ func NewAdminHandlerWith(inv invites.Store, aud audit.Store) *AdminHandler {
 	return &AdminHandler{invites: inv, audit: aud}
 }
 
+// activeSeatCount returns the number of outstanding active invites, used as the
+// current seat-consumption signal for the seats entitlement gate. A list error
+// returns 0 so a transient store hiccup fails open (matching the seam's
+// fail-open posture) rather than blocking legitimate invites.
+func (h *AdminHandler) activeSeatCount() int64 {
+	list, err := h.invites.List()
+	if err != nil {
+		return 0
+	}
+	now := time.Now()
+	var n int64
+	for _, inv := range list {
+		if inv.Active(now) {
+			n++
+		}
+	}
+	return n
+}
+
 // requireAdmin enforces the admin scope; writes 403 and returns false otherwise.
 func requireAdmin(c *gin.Context) bool {
 	if c.GetBool(middleware.CtxIsAdmin) {
@@ -122,12 +142,24 @@ func (h *AdminHandler) MintInvite(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	ttl := time.Duration(req.TTLHours) * time.Hour
 	actor := requesterID(c)
+
+	// SEATS GATE: minting an invite consumes a pending seat. Enforce max_seats
+	// BEFORE minting (server-side, before the token is issued). Current seat
+	// usage is the count of outstanding active invites. Standalone → unlimited →
+	// no-op.
+	if d := billing.GateSeats(c.Request.Context(), actor, h.activeSeatCount()); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	raw, inv, err := h.invites.Mint(actor, req.Note, req.MaxUses, ttl)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	recordAudit(h.audit, actor, audit.ActionInviteMint, inv.ID, "note="+req.Note)
+	// METER: report the seat consumption after a successful mint.
+	billing.MeterSeats(c.Request.Context(), actor)
 	// token is the ONLY time the raw secret is returned.
 	c.JSON(http.StatusCreated, gin.H{"token": raw, "invite": inv})
 }

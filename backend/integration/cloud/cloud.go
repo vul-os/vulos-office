@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -111,14 +112,31 @@ type cpEntitlements struct {
 	http *http.Client
 }
 
+// HeaderRelayAuth is the shared cp authentication header (matches the cp
+// contract used across vulos products; the secret is VULOS_CP_TOKEN).
+const HeaderRelayAuth = "X-Relay-Auth"
+
+// cpEntitlementResponse is the shared cp contract for an entitlements lookup:
+//
+//	GET {cp}/api/entitlements?account_id=<email>&product=office
+//	  → { tier, suspended, max_storage_bytes, max_seats, features{office} }
+type cpEntitlementResponse struct {
+	Tier            string          `json:"tier"`
+	Suspended       bool            `json:"suspended"`
+	MaxStorageBytes int64           `json:"max_storage_bytes"`
+	MaxSeats        int64           `json:"max_seats"`
+	Features        map[string]bool `json:"features"`
+}
+
 func (e *cpEntitlements) For(ctx context.Context, accountID string) (seam.Entitlement, error) {
-	url := fmt.Sprintf("%s/api/entitlements?account=%s&org=%s", e.cfg.BaseURL, accountID, e.cfg.OrgID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqURL := fmt.Sprintf("%s/api/entitlements?account_id=%s&product=office",
+		e.cfg.BaseURL, url.QueryEscape(accountID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return seam.Entitlement{}, err
 	}
 	if e.cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+e.cfg.Token)
+		req.Header.Set(HeaderRelayAuth, e.cfg.Token)
 	}
 	resp, err := e.http.Do(req)
 	if err != nil {
@@ -128,11 +146,17 @@ func (e *cpEntitlements) For(ctx context.Context, accountID string) (seam.Entitl
 	if resp.StatusCode != http.StatusOK {
 		return seam.Entitlement{}, fmt.Errorf("cp entitlements: status %d", resp.StatusCode)
 	}
-	var ent seam.Entitlement
-	if err := json.NewDecoder(resp.Body).Decode(&ent); err != nil {
+	var r cpEntitlementResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return seam.Entitlement{}, err
 	}
-	return ent, nil
+	return seam.Entitlement{
+		Tier:            r.Tier,
+		Suspended:       r.Suspended,
+		MaxStorageBytes: r.MaxStorageBytes,
+		MaxSeats:        r.MaxSeats,
+		Features:        r.Features,
+	}, nil
 }
 
 func (e *cpEntitlements) Allowed(ctx context.Context, accountID, feature string) bool {
@@ -141,6 +165,10 @@ func (e *cpEntitlements) Allowed(ctx context.Context, accountID, feature string)
 		// Fail open so a transient cp outage never locks self-features out; the
 		// control plane can still hard-deny via quota at the storage tier.
 		return true
+	}
+	// A suspended account is denied every feature when the cp actually answers.
+	if ent.Suspended {
+		return false
 	}
 	if ent.Features == nil {
 		return true
@@ -158,22 +186,43 @@ type cpUsage struct {
 	http *http.Client
 }
 
+// cpUsageBody is the shared cp contract for a usage report:
+//
+//	POST {cp}/api/usage  { product:"office", account_id, kind:"storage|seats", count, bytes }
+type cpUsageBody struct {
+	Product   string `json:"product"`
+	AccountID string `json:"account_id"`
+	Kind      string `json:"kind"`
+	Count     int64  `json:"count"`
+	Bytes     int64  `json:"bytes"`
+}
+
 func (u *cpUsage) Report(ctx context.Context, ev seam.UsageEvent) {
-	if ev.OrgID == "" {
-		ev.OrgID = u.cfg.OrgID
+	// Map the seam's neutral UsageEvent.Kind onto the cp's kind+count/bytes
+	// dimensions. "storage.bytes" → bytes; everything else → a unit count.
+	body := cpUsageBody{
+		Product:   "office",
+		AccountID: ev.AccountID,
+		Kind:      ev.Kind,
 	}
-	body, err := json.Marshal(ev)
+	switch ev.Kind {
+	case seam.KindStorage:
+		body.Bytes = ev.Value
+	default: // seam.KindSeats and any count-based dimension
+		body.Count = ev.Value
+	}
+	raw, err := json.Marshal(body)
 	if err != nil {
 		return
 	}
-	url := u.cfg.BaseURL + "/api/usage"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	reqURL := u.cfg.BaseURL + "/api/usage"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if u.cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+u.cfg.Token)
+		req.Header.Set(HeaderRelayAuth, u.cfg.Token)
 	}
 	// Fire-and-forget: never block request handling on metering.
 	resp, err := u.http.Do(req)
