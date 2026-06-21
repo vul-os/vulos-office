@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"time"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/models"
 	"vulos-office/backend/signing"
 	"vulos-office/backend/storage"
@@ -58,6 +59,13 @@ func (h *SigningHandler) Send(c *gin.Context) {
 	// signing tokens. Denied → 404 (no existence leak).
 	if !h.authz.canAccessEnvelopeACL(c, env.SourceFileID, env.ID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "envelope not found"})
+		return
+	}
+
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not send an
+	// envelope for signing. Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), requesterID(c)); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
 		return
 	}
 

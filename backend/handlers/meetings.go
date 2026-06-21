@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"vulos-office/backend/billing"
 	meetingsvc "vulos-office/backend/services/meeting"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
@@ -36,6 +37,13 @@ func NewMeetingHandler(store storage.Storage) *MeetingHandler {
 
 // POST /api/meetings
 func (h *MeetingHandler) Create(c *gin.Context) {
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not create
+	// meetings. Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), requesterID(c)); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	var req models.CreateMeetingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

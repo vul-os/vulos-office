@@ -46,6 +46,11 @@ type Store interface {
 	// HasUsers reports whether any credentials are registered. Used to decide
 	// whether to enforce per-user auth or fall back to the shared password.
 	HasUsers() (bool, error)
+	// CountUsers returns the number of registered credentials. Used as the real
+	// active-member signal for the seats entitlement cap (so the cap counts true
+	// members, not just pending invites). A store error must NOT be silently
+	// treated as zero by the caller — that would make the cap disappear.
+	CountUsers() (int64, error)
 	// RegisterFirst atomically registers accountID ONLY IF no users exist yet.
 	// It closes the first-user bootstrap TOCTOU race: the existence check and
 	// the insert happen under one transaction, so two concurrent callers cannot
@@ -205,6 +210,15 @@ func (s *SQLiteStore) HasUsers() (bool, error) {
 	return n > 0, nil
 }
 
+// CountUsers returns the number of registered credentials.
+func (s *SQLiteStore) CountUsers() (int64, error) {
+	var n int64
+	if err := s.db.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // RegisterFirst atomically inserts the first user inside a transaction, guarded
 // by a count check so concurrent callers cannot both win the bootstrap race.
 // (db.SetMaxOpenConns(1) already serialises writers; the transaction makes the
@@ -308,6 +322,13 @@ func (n *NullStore) HasUsers() (bool, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return len(n.users) > 0, nil
+}
+
+// CountUsers returns the number of in-memory credentials.
+func (n *NullStore) CountUsers() (int64, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return int64(len(n.users)), nil
 }
 
 func (n *NullStore) Close() error { return nil }

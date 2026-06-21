@@ -91,22 +91,23 @@ func (h *FileHandler) Create(c *gin.Context) {
 		Content: req.Content,
 	}
 
-	// STORAGE GATE: enforce the storage quota for the new document's content
-	// BEFORE persisting it. Standalone → unlimited → no-op.
+	// STORAGE GATE: atomically check AND reserve the storage quota for the new
+	// document's content BEFORE persisting it. Standalone → unlimited → no-op.
+	// The reservation is committed on success / released if the write fails.
 	var contentBytes []byte
 	if file.Content != nil {
 		if b, err := json.Marshal(file.Content); err == nil {
 			contentBytes = b
 		}
 	}
-	if n := int64(len(contentBytes)); n > 0 {
-		if d := billing.GateStorage(c.Request.Context(), account, n); !d.Allowed() {
-			c.JSON(d.Code, gin.H{"error": d.Reason})
-			return
-		}
+	d, res := billing.GateStorage(c.Request.Context(), account, int64(len(contentBytes)))
+	if !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
 	}
 
 	if err := h.store.CreateFile(file); err != nil {
+		res.Release()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -120,10 +121,9 @@ func (h *FileHandler) Create(c *gin.Context) {
 		}
 	}
 
-	// METER: report the storage usage after a successful create.
-	if n := int64(len(contentBytes)); n > 0 {
-		billing.MeterStorage(c.Request.Context(), account, n)
-	}
+	// METER: commit the reservation after a successful create (advances the
+	// running total + reports usage). A no-op for unlimited / zero-byte content.
+	res.Commit(c.Request.Context())
 
 	c.JSON(http.StatusCreated, file)
 }
@@ -133,6 +133,15 @@ func (h *FileHandler) Update(c *gin.Context) {
 	if !h.authz.require(c, id) {
 		return
 	}
+	account := requesterID(c)
+
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not mutate
+	// documents. Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), account); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	var req models.UpdateFileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -145,7 +154,22 @@ func (h *FileHandler) Update(c *gin.Context) {
 		Content: req.Content,
 	}
 
+	// STORAGE GATE: atomically check AND reserve the quota for the new content
+	// BEFORE persisting it (this write previously bypassed the gate entirely).
+	var contentBytes []byte
+	if file.Content != nil {
+		if b, err := json.Marshal(file.Content); err == nil {
+			contentBytes = b
+		}
+	}
+	d, res := billing.GateStorage(c.Request.Context(), account, int64(len(contentBytes)))
+	if !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	if err := h.store.UpdateFile(file); err != nil {
+		res.Release()
 		if err.Error() == "file not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 			return
@@ -157,13 +181,14 @@ func (h *FileHandler) Update(c *gin.Context) {
 	updated, _ := h.store.GetFile(file.ID)
 
 	// Sync updated content blob to bucket (SQLite is still the primary source).
-	if file.Content != nil {
-		if contentBytes, err := json.Marshal(file.Content); err == nil {
-			if err := SharedBucketStore().PutObject(requesterID(c), "file/"+id, contentBytes, "application/json"); err != nil {
-				log.Printf("[files] bucket sync update file=%s: %v (SQLite is primary — continuing)", id, err)
-			}
+	if contentBytes != nil {
+		if err := SharedBucketStore().PutObject(account, "file/"+id, contentBytes, "application/json"); err != nil {
+			log.Printf("[files] bucket sync update file=%s: %v (SQLite is primary — continuing)", id, err)
 		}
 	}
+
+	// METER: commit the reservation after a successful update.
+	res.Commit(c.Request.Context())
 
 	c.JSON(http.StatusOK, updated)
 }

@@ -287,10 +287,13 @@ func main() {
 	protected.POST("/meet/:roomId/admit-all", meetJoinHandler.AdmitAll)
 	protected.POST("/meet/:roomId/deny", meetJoinHandler.Deny)
 
-	// Recording upload/list/download are semi-public (join token validates the uploader);
+	// Recording UPLOAD is an authenticated, gated, metered storage write — it
+	// MUST be on the protected group so the account is derived from the verified
+	// identity (not ClientIP) and the storage gate/meter run on a real account.
+	// Listing/download stay semi-public (a join token validates the viewer);
 	// delete requires full auth.
 	recordingHandler := handlers.NewRecordingHandler(store)
-	api.POST("/meet/:roomId/recordings", recordingHandler.Upload)
+	protected.POST("/meet/:roomId/recordings", recordingHandler.Upload)
 	api.GET("/meet/:roomId/recordings", recordingHandler.List)
 	api.GET("/meet/:roomId/recordings/:rid", recordingHandler.Download)
 	protected.DELETE("/meet/:roomId/recordings/:rid", recordingHandler.Delete)

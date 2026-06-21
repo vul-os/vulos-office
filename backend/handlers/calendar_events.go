@@ -27,6 +27,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/middleware"
 	"vulos-office/backend/services/calendar_rrule"
 	"vulos-office/backend/storage/calstore"
@@ -185,6 +186,12 @@ func (h *CalendarEventHandler) ListEvents(c *gin.Context) {
 
 // CreateEvent POST /api/calendar/events
 func (h *CalendarEventHandler) CreateEvent(c *gin.Context) {
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not create
+	// calendar events. Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), requesterID(c)); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
 	var req CalEvent
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

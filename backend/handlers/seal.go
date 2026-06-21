@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -145,11 +146,26 @@ func (h *SealHandler) Download(c *gin.Context) {
 		return
 	}
 
+	// STORAGE GATE: sealing persists the generated PDF on first GET — a billable
+	// storage write that previously bypassed the gate entirely. Atomically check
+	// AND reserve the quota for the sealed bytes BEFORE persisting. Standalone →
+	// unlimited → no-op.
+	account := requesterID(c)
+	d, res := billing.GateStorage(c.Request.Context(), account, int64(len(sealedBytes)))
+	if !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
+
 	// Persist sealed bytes.
 	if err := h.store.StoreSealedPDF(envelopeID, sealedBytes); err != nil {
+		res.Release()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("persist sealed PDF: %v", err)})
 		return
 	}
+
+	// METER: commit the reservation after a successful seal-and-persist.
+	res.Commit(c.Request.Context())
 
 	// Best-effort push to org bucket — SQLite/local is still the primary source.
 	if err := SharedBucketStore().PutObject(requesterID(c), "seal/"+envelopeID+".pdf", sealedBytes, "application/pdf"); err != nil {

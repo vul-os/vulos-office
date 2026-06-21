@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"crypto/subtle"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"vulos-office/backend/audit"
+	"vulos-office/backend/billing"
 	"vulos-office/backend/config"
 	"vulos-office/backend/invites"
 	"vulos-office/backend/middleware"
@@ -40,26 +40,13 @@ type AuthHandler struct {
 	audit audit.Store
 }
 
-// userAuthDBPath resolves the credential SQLite DSN from env.
-func userAuthDBPath() string {
-	if v := os.Getenv("VULOS_USERAUTH_DB"); v != "" {
-		return v
-	}
-	return "./data/userauth.db"
-}
-
 func NewAuthHandler(cfg *config.Config) *AuthHandler {
-	var creds userauth.Store
-	if st, err := userauth.NewSQLiteStore(userAuthDBPath()); err == nil {
-		creds = st
-	} else {
-		log.Printf("auth: per-user credential store unavailable (%v); falling back to in-memory store", err)
-		creds = userauth.NewNullStore()
-	}
+	// Use the process-wide shared credential store so the register path's seat
+	// count and the admin seat gate see the SAME members.
 	return &AuthHandler{
 		cfg:      cfg,
 		attempts: make(map[string]*attemptRecord),
-		creds:    creds,
+		creds:    SharedCredsStore(),
 		invites:  SharedInviteStore(),
 		audit:    SharedAuditStore(),
 	}
@@ -497,9 +484,25 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// SEATS GATE: admitting a new member via the register/accept-invite path
+	// consumes a seat. Enforce max_seats BEFORE creating the credential (this path
+	// was previously never seat-gated). Current usage counts real members + active
+	// invites and does NOT fail open. Standalone → unlimited → no-op.
+	seats, serr := currentSeatUsage(h.creds, h.invites)
+	if serr != nil {
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse{Error: "cannot determine seat usage; try again"})
+		return
+	}
+	if d := billing.GateSeats(c.Request.Context(), req.AccountID, seats); !d.Allowed() {
+		c.JSON(d.Code, models.ErrorResponse{Error: d.Reason})
+		return
+	}
+
 	switch err := h.creds.Register(req.AccountID, req.Password); err {
 	case nil:
 		consumeInvite(req.AccountID)
+		// METER the added seat after a successful member create.
+		billing.MeterSeats(c.Request.Context(), req.AccountID)
 		via := "static-token-or-admin"
 		if inviteValid {
 			via = "invite-token"

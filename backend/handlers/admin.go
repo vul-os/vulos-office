@@ -18,6 +18,7 @@ import (
 	"vulos-office/backend/billing"
 	"vulos-office/backend/invites"
 	"vulos-office/backend/middleware"
+	"vulos-office/backend/userauth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -43,7 +44,31 @@ var (
 	inviteStoreOnce    sync.Once
 	defaultAuditStore  audit.Store
 	auditStoreOnce     sync.Once
+	defaultCredsStore  userauth.Store
+	credsStoreOnce     sync.Once
 )
+
+func credsDBPath() string {
+	if v := os.Getenv("VULOS_USERAUTH_DB"); v != "" {
+		return v
+	}
+	return "./data/userauth.db"
+}
+
+// SharedCredsStore returns the process-wide per-user credential store backed by
+// durable SQLite, falling back to in-memory (degraded) if it cannot be opened.
+// Sharing one store across the auth handler and the admin/seat gate keeps the
+// member count consistent (the seats cap counts real registered members).
+func SharedCredsStore() userauth.Store {
+	credsStoreOnce.Do(func() {
+		if st, err := userauth.NewSQLiteStore(credsDBPath()); err == nil {
+			defaultCredsStore = st
+		} else {
+			defaultCredsStore = userauth.NewNullStore()
+		}
+	})
+	return defaultCredsStore
+}
 
 // SharedInviteStore returns a process-wide invite store backed by durable
 // SQLite, falling back to in-memory (degraded) if the DB cannot be opened.
@@ -85,34 +110,63 @@ func recordAudit(st audit.Store, actor string, action audit.Action, target, deta
 type AdminHandler struct {
 	invites invites.Store
 	audit   audit.Store
+	creds   userauth.Store
 }
 
 func NewAdminHandler() *AdminHandler {
-	return &AdminHandler{invites: SharedInviteStore(), audit: SharedAuditStore()}
+	return &AdminHandler{invites: SharedInviteStore(), audit: SharedAuditStore(), creds: SharedCredsStore()}
 }
 
 // NewAdminHandlerWith builds a handler over caller-supplied stores (tests).
 func NewAdminHandlerWith(inv invites.Store, aud audit.Store) *AdminHandler {
-	return &AdminHandler{invites: inv, audit: aud}
+	return &AdminHandler{invites: inv, audit: aud, creds: userauth.NewNullStore()}
 }
 
-// activeSeatCount returns the number of outstanding active invites, used as the
-// current seat-consumption signal for the seats entitlement gate. A list error
-// returns 0 so a transient store hiccup fails open (matching the seam's
-// fail-open posture) rather than blocking legitimate invites.
-func (h *AdminHandler) activeSeatCount() int64 {
-	list, err := h.invites.List()
+// NewAdminHandlerWithCreds builds a handler over caller-supplied invite, audit,
+// and credential stores (tests that exercise the real-member seat count).
+func NewAdminHandlerWithCreds(inv invites.Store, aud audit.Store, creds userauth.Store) *AdminHandler {
+	return &AdminHandler{invites: inv, audit: aud, creds: creds}
+}
+
+// currentSeatUsage returns the number of seats currently consumed: the count of
+// REAL registered members PLUS outstanding (active, unexpired) invites. Counting
+// real members closes the churn-bypass hole where revoking/expiring invites
+// freed seats without removing the members they admitted. Shared by the admin
+// invite-mint gate and the register/accept-invite gate so both see one count.
+//
+// It does NOT fail open: a store error returns a non-nil error so the caller
+// treats the situation as "cannot determine seats → cannot add" rather than
+// silently dropping the cap to zero.
+func currentSeatUsage(creds userauth.Store, inv invites.Store) (int64, error) {
+	var members int64
+	if creds != nil {
+		n, err := creds.CountUsers()
+		if err != nil {
+			return 0, err
+		}
+		members = n
+	}
+
+	if inv == nil {
+		return members, nil
+	}
+	list, err := inv.List()
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	now := time.Now()
-	var n int64
-	for _, inv := range list {
-		if inv.Active(now) {
-			n++
+	var pending int64
+	for _, i := range list {
+		if i.Active(now) {
+			pending++
 		}
 	}
-	return n
+	return members + pending, nil
+}
+
+// activeSeatCount returns the seats consumed for this handler's stores.
+func (h *AdminHandler) activeSeatCount() (int64, error) {
+	return currentSeatUsage(h.creds, h.invites)
 }
 
 // requireAdmin enforces the admin scope; writes 403 and returns false otherwise.
@@ -143,11 +197,17 @@ func (h *AdminHandler) MintInvite(c *gin.Context) {
 	ttl := time.Duration(req.TTLHours) * time.Hour
 	actor := requesterID(c)
 
-	// SEATS GATE: minting an invite consumes a pending seat. Enforce max_seats
-	// BEFORE minting (server-side, before the token is issued). Current seat
-	// usage is the count of outstanding active invites. Standalone → unlimited →
-	// no-op.
-	if d := billing.GateSeats(c.Request.Context(), actor, h.activeSeatCount()); !d.Allowed() {
+	// SEATS GATE: minting an invite consumes a seat. Enforce max_seats BEFORE
+	// minting (server-side, before the token is issued). Current seat usage is the
+	// count of REAL registered members plus outstanding active invites. Standalone
+	// → unlimited → no-op. A store error is NOT treated as zero seats (that would
+	// silently disable the cap); we refuse the mint so the cap cannot be bypassed.
+	seats, err := h.activeSeatCount()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cannot determine current seat usage; try again"})
+		return
+	}
+	if d := billing.GateSeats(c.Request.Context(), actor, seats); !d.Allowed() {
 		c.JSON(d.Code, gin.H{"error": d.Reason})
 		return
 	}

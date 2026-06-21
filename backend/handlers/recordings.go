@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -49,8 +50,25 @@ func newRecordingID() (string, error) {
 
 // Upload handles POST /api/meet/:roomId/recordings
 // Accepts multipart/form-data with a "recording" file field (webm).
+//
+// SECURITY: this is an authenticated, gated, metered storage write. It is
+// mounted on the protected route group, derives the account from the VERIFIED
+// identity (never c.ClientIP(), which is forgeable and attributed billing to a
+// network address), gates on office access + storage quota, and meters the bytes
+// written. Previously it was a public, ungated, unmetered 500 MB write hole.
 func (h *RecordingHandler) Upload(c *gin.Context) {
 	roomID := c.Param("roomId")
+
+	// Verified identity — NOT c.ClientIP(). This is the bypass-proof account the
+	// gate/meter run against.
+	accountID := requesterID(c)
+
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not upload.
+	// Standalone → allow.
+	if d := billing.GateOffice(c.Request.Context(), accountID); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
+	}
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRecordingBytes)
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
@@ -77,19 +95,25 @@ func (h *RecordingHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	accountID := c.GetString("userID")
-	if accountID == "" {
-		accountID = c.ClientIP()
-	}
 	fileName := header.Filename
 	if fileName == "" {
 		fileName = fmt.Sprintf("recording-%s.webm", rid)
+	}
+
+	// STORAGE GATE: atomically check AND reserve the quota for the recording
+	// bytes BEFORE any write. Committed on success / released on any failure so
+	// the quota is not consumed by a write that never lands. Standalone → no-op.
+	d, res := billing.GateStorage(c.Request.Context(), accountID, int64(len(data)))
+	if !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
+		return
 	}
 
 	bucketKey := ""
 	bs := SharedBucketStore()
 	if storage.OrgBucketClient() != nil {
 		if err := bs.PutObject(accountID, fileName, data, "video/webm"); err != nil {
+			res.Release()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "bucket upload failed: " + err.Error()})
 			return
 		}
@@ -97,11 +121,13 @@ func (h *RecordingHandler) Upload(c *gin.Context) {
 	} else {
 		// OSS fallback — write blob to local filesystem.
 		if err := os.MkdirAll(localRecordingsDir, 0755); err != nil {
+			res.Release()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "local recordings dir: " + err.Error()})
 			return
 		}
 		blobPath := filepath.Join(localRecordingsDir, rid+".webm")
 		if err := os.WriteFile(blobPath, data, 0644); err != nil {
+			res.Release()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "local write: " + err.Error()})
 			return
 		}
@@ -118,9 +144,13 @@ func (h *RecordingHandler) Upload(c *gin.Context) {
 	}
 
 	if err := h.store.CreateRecording(rec); err != nil {
+		res.Release()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "store recording: " + err.Error()})
 		return
 	}
+
+	// METER: commit the reservation after a successful recording upload.
+	res.Commit(c.Request.Context())
 
 	c.JSON(http.StatusCreated, rec)
 }

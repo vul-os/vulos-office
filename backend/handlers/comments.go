@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"time"
 
+	"vulos-office/backend/billing"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -71,6 +72,11 @@ func (h *CommentHandler) List(c *gin.Context) {
 func (h *CommentHandler) Create(c *gin.Context) {
 	fileID := c.Param("id")
 	if !h.authz.require(c, fileID) {
+		return
+	}
+	// OFFICE ACCESS GATE: a suspended / office-disabled account may not comment.
+	if d := billing.GateOffice(c.Request.Context(), requesterID(c)); !d.Allowed() {
+		c.JSON(d.Code, gin.H{"error": d.Reason})
 		return
 	}
 	var req models.CreateCommentRequest
