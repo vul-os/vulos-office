@@ -12,8 +12,10 @@ import (
 
 	"vulos-office/backend/config"
 	"vulos-office/backend/handlers"
+	"vulos-office/backend/integration/cloud"
 	"vulos-office/backend/middleware"
 	"vulos-office/backend/obs"
+	"vulos-office/backend/seam"
 	"vulos-office/backend/services/meeting"
 	"vulos-office/backend/storage"
 	"vulos-office/backend/userauth"
@@ -106,13 +108,29 @@ func main() {
 	// still boots and logs a warning (OSS self-host, no cloud required).
 	storage.InitOrgBucket()
 
+	// ── Integration seam ──────────────────────────────────────────────────────
+	// office runs COMPLETELY STANDALONE by default: identity is verified against
+	// office's local JWT secret, entitlements are unlimited (self-host), and
+	// usage metering is a no-op. The vulos-cloud control plane is OPTIONAL and
+	// only engaged when VULOS_CP_BASE_URL is set — the core never imports the
+	// cloud adapter, so removing it cannot break the standalone build.
+	provider := seam.NewStandaloneProvider(middleware.JWTSecret, cfg.Auth.Enabled)
+	if cloud.Enabled() {
+		ccfg := cloud.FromEnv()
+		provider = cloud.NewProvider(ccfg, provider.Identity)
+		log.Printf("[seam] integration mode: cloud (control plane %s)", ccfg.BaseURL)
+	} else {
+		log.Printf("[seam] integration mode: standalone (no control plane)")
+	}
+	_ = provider // available for handlers that adopt the seam (entitlements/usage)
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowAllOrigins: true,
+		AllowMethods:    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:    []string{"Origin", "Content-Type", "Authorization"},
 	}))
 
 	// Prometheus metrics (no auth required).

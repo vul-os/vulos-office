@@ -142,6 +142,7 @@ docker run -d \
 
 | Document | Description |
 |----------|-------------|
+| [SELFHOST.md](SELFHOST.md) | Run fully standalone (no vulos-cloud); the optional cloud seam |
 | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | Full setup walkthrough |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component map and key design decisions |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars, config.yaml reference, OTEL/SMTP |
