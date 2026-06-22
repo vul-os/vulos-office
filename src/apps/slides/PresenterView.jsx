@@ -20,14 +20,8 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react'
-import DOMPurify from 'dompurify'
-
-const PURIFY_CONFIG = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
-}
-const sanitize = (html) => DOMPurify.sanitize(html ?? '', PURIFY_CONFIG)
+// Shared DOMPurify config — see src/lib/sanitize.js.
+import { sanitizeSlideHtml as sanitize } from '../../lib/sanitize'
 
 // The presenter window HTML is injected as a blob URL so we stay same-origin.
 function buildPresenterHTML(slides, activeIdx, themeId) {

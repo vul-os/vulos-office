@@ -5,7 +5,7 @@
  */
 import { useState, useRef, useCallback } from 'react'
 import { Search, X, ChevronDown, ChevronUp } from 'lucide-react'
-import DOMPurify from 'dompurify'
+import { sanitizeSearchHighlight } from '../../lib/sanitize'
 
 /**
  * parseSearchQuery — parse a raw query string into a structured filter.
@@ -101,11 +101,8 @@ export function highlightTerms(text, terms) {
     }
   }
   // 3. Defence-in-depth: sanitize the final HTML allowing only the <mark>
-  //    highlight element (and its class) — mirrors RichMessage's DOMPurify path.
-  return DOMPurify.sanitize(result, {
-    ALLOWED_TAGS: ['mark'],
-    ALLOWED_ATTR: ['class'],
-  })
+  //    highlight element (and its class) — shared policy in src/lib/sanitize.js.
+  return sanitizeSearchHighlight(result)
 }
 
 // ---- SearchBar component -----------------------------------------------------

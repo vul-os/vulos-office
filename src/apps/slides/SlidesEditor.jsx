@@ -18,7 +18,7 @@ import {
   Copy, FileText, GripVertical, Monitor, Zap, Undo, Redo,
   ChevronDown as ChevronDownIcon, Type as TypeIcon, LayoutGrid, X,
 } from 'lucide-react'
-import DOMPurify from 'dompurify'
+import { sanitizeSlideHtml as sanitize } from '../../lib/sanitize'
 import { useFilesStore } from '../../store/filesStore'
 import { api } from '../../lib/api'
 import SlidePreview from './SlidePreview'
@@ -36,14 +36,7 @@ import TemplateGallery from './TemplateGallery.jsx'
 import { usePresenterView } from './PresenterView.jsx'
 import { getTheme } from './themes.js'
 
-const PURIFY_CONFIG = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: ['script', 'object', 'embed', 'form', 'input', 'button'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur',
-                'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'],
-}
-
-const sanitize = (html) => DOMPurify.sanitize(html ?? '', PURIFY_CONFIG)
+// HTML sanitisation uses the shared config in src/lib/sanitize.js.
 
 // Reveal.js theme names (kept for backward compatibility with legacy decks).
 const LEGACY_TRANSITIONS = ['none', 'fade', 'slide', 'convex', 'concave', 'zoom']

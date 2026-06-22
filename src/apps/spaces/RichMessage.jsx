@@ -4,7 +4,7 @@
  * Renders @mentions as inline chips.
  */
 import { useEffect, useRef, useState } from 'react'
-import DOMPurify from 'dompurify'
+import { sanitizeChatMarkdown } from '../../lib/sanitize'
 
 // ---- Inline markdown → HTML --------------------------------------------------
 
@@ -137,12 +137,9 @@ export default function RichMessage({ body = '', members = [] }) {
 
   const rawHtml = renderMarkdown(body, members)
 
-  // Sanitise with DOMPurify (imported as a module — sanitised unconditionally
-  // so the markdown-rendered HTML can never be injected unsanitised).
-  const safeHtml = DOMPurify.sanitize(rawHtml, {
-    ALLOWED_TAGS: ['strong', 'em', 'code', 'pre', 'a', 'ul', 'ol', 'li', 'blockquote', 'br', 'span'],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'data-lang'],
-  })
+  // Sanitise with the shared chat-markdown policy (src/lib/sanitize.js) so the
+  // markdown-rendered HTML can never be injected unsanitised.
+  const safeHtml = sanitizeChatMarkdown(rawHtml)
 
   // Highlight code blocks after render
   useEffect(() => {

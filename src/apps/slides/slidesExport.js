@@ -1,13 +1,6 @@
 import { saveAs } from 'file-saver'
 import pptxgen from 'pptxgenjs'
-import DOMPurify from 'dompurify'
-
-const PURIFY_CONFIG = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur',
-                'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'],
-}
+import { stripHtml } from '../../lib/sanitize'
 
 export function exportSlidesToPdf(filename) {
   const old = document.title
@@ -56,11 +49,4 @@ export async function exportSlidesToPptx(data, filename) {
 
   const blob = await pres.stream()
   saveAs(blob, `${filename}.pptx`)
-}
-
-function stripHtml(html) {
-  const div = document.createElement('div')
-  // Sanitize before DOM assignment to prevent XSS during text extraction.
-  div.innerHTML = DOMPurify.sanitize(html ?? '', PURIFY_CONFIG)
-  return div.textContent || div.innerText || ''
 }

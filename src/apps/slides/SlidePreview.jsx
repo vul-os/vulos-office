@@ -1,19 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
-import DOMPurify from 'dompurify'
-
-// Shared DOMPurify config: allow Tiptap/Reveal HTML tags, strip anything
-// that could execute code (<script>, on* handlers, javascript: URLs, <iframe>).
-const PURIFY_CONFIG = {
-  USE_PROFILES: { html: true },
-  FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
-  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur',
-                'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'],
-}
-
-function sanitize(html) {
-  return DOMPurify.sanitize(html ?? '', PURIFY_CONFIG)
-}
+// Shared DOMPurify config (see src/lib/sanitize.js) — allows Tiptap/Reveal HTML
+// tags, strips anything that could execute code (<script>, on* handlers,
+// javascript: URLs, <iframe>).
+import { sanitizeSlideHtml as sanitize } from '../../lib/sanitize'
 
 /**
  * SlidePreview — full-screen reveal.js presentation overlay.

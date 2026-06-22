@@ -189,6 +189,36 @@
 .tiptap a:hover { color: var(--accent-hover); }
 
 /* ============================================================================
+ * Skeleton shimmer — used by <Skeleton> / <LoadingState.Lines>.
+ * A warm-neutral sunk surface with a slow accent-tinted sheen sweeping across.
+ * Honours prefers-reduced-motion: the sheen stops, leaving a static block.
+ * ========================================================================== */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-sunk);
+}
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent-tint),
+    transparent
+  );
+  animation: skeleton-sweep 1.4s var(--ease-out) infinite;
+}
+@keyframes skeleton-sweep {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer::after { animation: none; }
+}
+
+/* ============================================================================
  * Scrollbar — slim, warm-neutral, on-brand
  * ========================================================================== */
 ::-webkit-scrollbar { width: 8px; height: 8px; }

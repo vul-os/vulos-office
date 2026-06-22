@@ -17,7 +17,7 @@
  *   identity   — { displayName } for the caption label
  */
 import { useEffect, useRef, useCallback } from 'react'
-import DOMPurify from 'dompurify'
+import { sanitizeToText } from '../../../lib/sanitize'
 import { Captions as CaptionsIcon, CaptionsOff } from 'lucide-react'
 import { Tooltip } from '../../../components/ui'
 
@@ -26,11 +26,10 @@ import { Tooltip } from '../../../components/ui'
  * rendering it. React's JSX interpolation already auto-escapes, so this is a
  * defence-in-depth measure against future code changes that might introduce
  * dangerouslySetInnerHTML. Returns a plain-text string.
+ *
+ * Delegates to the shared text-only policy in src/lib/sanitize.js.
  */
-function sanitizeCaption(text) {
-  if (typeof text !== 'string') return ''
-  return DOMPurify.sanitize(text, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
-}
+const sanitizeCaption = sanitizeToText
 
 function getSpeechRecognition() {
   return (
