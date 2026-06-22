@@ -77,13 +77,22 @@ export default function Home() {
 
   return (
     <div className="flex-1 overflow-auto bg-bg">
-      <div className="max-w-4xl mx-auto px-8 py-10 space-y-10">
+      <div className="max-w-4xl mx-auto px-8 py-12 space-y-12">
+
+        {/* ── Hero ── */}
+        <header>
+          <p className="mono-label mb-2.5">Workspace</p>
+          <h1 className="text-2xl font-semibold text-ink tracking-tight leading-tight">
+            Welcome back
+          </h1>
+          <p className="text-sm text-ink-faint mt-1.5 leading-relaxed">
+            Create something new, or pick up where you left off.
+          </p>
+        </header>
 
         {/* ── Quick-start cluster ── */}
         <section>
-          <p className="text-2xs font-semibold text-ink-faint tracking-eyebrow uppercase mb-4">
-            Start something new
-          </p>
+          <p className="mono-label mb-3.5">Start something new</p>
           <div className="grid grid-cols-3 gap-3">
             {quickStarts.map(({ label, shortLabel, icon: Icon, type }) => {
               const info = typeInfo[type]
@@ -92,21 +101,23 @@ export default function Home() {
                   key={type}
                   onClick={() => openNew(type)}
                   className={[
-                    'group flex flex-col items-center gap-3 p-5 rounded-lg border border-line',
-                    'bg-paper hover:border-line-strong hover:shadow-e1',
-                    'transition-[border-color,box-shadow] duration-fast ease-out',
-                    'text-left cursor-pointer',
+                    'group relative flex flex-col gap-4 p-5 rounded-lg border border-line',
+                    'bg-paper hover:bg-bg-elev2 hover:border-line-strong',
+                    'transition-colors duration-fast ease-out',
+                    'text-left cursor-pointer overflow-hidden',
                   ].join(' ')}
                 >
-                  <div className={`w-11 h-11 rounded-lg ${info.bgCn} flex items-center justify-center flex-shrink-0`}>
-                    <Icon size={22} className={info.iconCn} />
+                  <div className={`w-10 h-10 rounded-lg ${info.bgCn} border border-line flex items-center justify-center flex-shrink-0`}>
+                    <Icon size={20} className={info.iconCn} strokeWidth={1.9} />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-ink tracking-tightish text-center leading-snug">{shortLabel}</p>
-                    <p className="text-2xs text-ink-faint text-center mt-0.5 tracking-tightish">Blank</p>
+                    <p className="text-sm font-semibold text-ink tracking-tightish leading-snug">{shortLabel}</p>
+                    <p className="text-2xs text-ink-faint mt-0.5 tracking-tightish">Blank · ready to edit</p>
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
-                    <Plus size={13} className="text-ink-faint" />
+                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-fast">
+                    <div className="w-6 h-6 rounded-md bg-accent flex items-center justify-center">
+                      <Plus size={13} className="text-white" strokeWidth={2.4} />
+                    </div>
                   </div>
                 </button>
               )
@@ -123,9 +134,7 @@ export default function Home() {
 
         {!filesLoading && recentFiles.length > 0 && (
           <section>
-            <p className="text-2xs font-semibold text-ink-faint tracking-eyebrow uppercase mb-4">
-              Recent
-            </p>
+            <p className="mono-label mb-3.5">Recent</p>
             <Card>
               {recentFiles.map((file, i) => {
                 const info = typeInfo[file.type]
@@ -135,22 +144,22 @@ export default function Home() {
                     key={file.id}
                     onClick={() => navigate(`/${info.route}/${file.id}`)}
                     className={[
-                      'w-full flex items-center gap-3 px-4 py-3 text-left group',
-                      'hover:bg-accent-tint transition-colors duration-fast ease-out',
+                      'w-full flex items-center gap-3 px-4 py-2.5 text-left group',
+                      'hover:bg-bg-hover transition-colors duration-fast ease-out',
                       i < recentFiles.length - 1 ? 'border-b border-line' : '',
                     ].join(' ')}
                   >
-                    <div className={`w-8 h-8 ${info.bgCn} rounded-md flex items-center justify-center flex-shrink-0`}>
+                    <div className={`w-8 h-8 ${info.bgCn} border border-line rounded-md flex items-center justify-center flex-shrink-0`}>
                       <Icon size={14} className={info.iconCn} />
                     </div>
                     <span className="text-sm font-medium text-ink flex-1 truncate tracking-tightish">{file.name}</span>
-                    <span className="text-2xs text-ink-faint flex items-center gap-1 flex-shrink-0 tracking-tightish">
+                    <span className="font-mono text-2xs text-ink-faint flex items-center gap-1.5 flex-shrink-0">
                       <Clock size={10} />
                       {formatDate(new Date(file.updated_at).getTime())}
                     </span>
                     <ArrowUpRight
-                      size={13}
-                      className="text-ink-faint opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      size={14}
+                      className="text-accent opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                     />
                   </button>
                 )
@@ -181,12 +190,10 @@ export default function Home() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <HardDrive size={13} className="text-ink-faint" />
-              <p className="text-2xs font-semibold text-ink-faint tracking-eyebrow uppercase">
-                On Your Computer
-              </p>
+              <HardDrive size={12} className="text-ink-faint" />
+              <p className="mono-label">On your computer</p>
               {localFiles.length > 0 && (
-                <span className="text-2xs text-ink-faint bg-bg-elev2 border border-line rounded-pill px-2 py-0.5 tracking-tightish">
+                <span className="font-mono text-2xs text-ink-faint bg-bg-elev2 border border-line rounded-pill px-2 py-0.5">
                   {localFiles.length}
                 </span>
               )}
@@ -194,7 +201,7 @@ export default function Home() {
             <Tooltip label={localLoading ? 'Scanning…' : 'Rescan files'} side="left">
               <button
                 onClick={() => scan()}
-                className="flex items-center gap-1.5 text-2xs text-ink-faint hover:text-ink-muted transition-colors"
+                className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wide text-ink-faint hover:text-ink-muted transition-colors"
               >
                 <RefreshCw size={12} className={localLoading ? 'animate-spin' : ''} />
                 {localLoading ? 'Scanning…' : 'Rescan'}
@@ -230,29 +237,29 @@ export default function Home() {
                       disabled={importing === file.path}
                       className={[
                         'w-full flex items-center gap-3 px-4 py-2.5 text-left group',
-                        'hover:bg-accent-tint transition-colors duration-fast ease-out',
+                        'hover:bg-bg-hover transition-colors duration-fast ease-out',
                         'disabled:opacity-60',
                         i < visibleLocal.length - 1 ? 'border-b border-line' : '',
                       ].join(' ')}
                     >
-                      <div className={`w-7 h-7 ${info.bgCn} rounded-md flex items-center justify-center flex-shrink-0`}>
+                      <div className={`w-7 h-7 ${info.bgCn} border border-line rounded-md flex items-center justify-center flex-shrink-0`}>
                         <Icon size={13} className={info.iconCn} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-ink truncate tracking-tightish">{file.name}</p>
-                        <p className="text-2xs text-ink-faint truncate">
+                        <p className="font-mono text-2xs text-ink-faint truncate">
                           {file.path.replace(/\/Users\/[^/]+/, '~')}
                         </p>
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0 text-2xs text-ink-faint tracking-tightish">
+                      <div className="flex items-center gap-3 flex-shrink-0 font-mono text-2xs text-ink-faint">
                         <span>{formatSize(file.size)}</span>
                         <span>{formatDate(file.modified)}</span>
-                        <span className={`px-1.5 py-0.5 rounded-xs ${info.bgCn} ${info.iconCn} font-semibold uppercase text-[9px]`}>
+                        <span className={`px-1.5 py-0.5 rounded-sm ${info.bgCn} ${info.iconCn} border border-line font-semibold uppercase text-[9px]`}>
                           {file.ext.slice(1)}
                         </span>
                         {importing === file.path
                           ? <Loader2 size={12} className="animate-spin text-accent" />
-                          : <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                          : <ArrowUpRight size={12} className="text-accent opacity-0 group-hover:opacity-100 transition-opacity" />
                         }
                       </div>
                     </button>

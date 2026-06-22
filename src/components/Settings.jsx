@@ -37,7 +37,7 @@ function Toggle({ checked, onChange }) {
     >
       <span
         className={[
-          'inline-block h-3.5 w-3.5 rounded-pill bg-paper shadow-e1 transition-transform duration-base ease-spring',
+          'inline-block h-3.5 w-3.5 rounded-pill bg-white shadow-e1 transition-transform duration-base ease-spring',
           checked ? 'translate-x-[18px]' : 'translate-x-[3px]',
         ].join(' ')}
       />

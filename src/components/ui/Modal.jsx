@@ -127,7 +127,7 @@ function Modal({ open, onClose, title, size = 'md', children, className = '' }) 
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
-      style={{ background: 'rgba(26, 25, 22, 0.36)', backdropFilter: 'blur(2px)' }}
+      style={{ background: 'rgba(0, 0, 0, 0.62)', backdropFilter: 'blur(3px)' }}
     >
       <div
         ref={dialogRef}

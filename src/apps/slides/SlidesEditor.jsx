@@ -716,7 +716,7 @@ export default function SlidesEditor() {
                     >
                       <div
                         className={[
-                          'text-sm font-bold truncate w-full mb-2',
+                          'text-sm font-bold truncate w-full mb-2 pl-7',
                           slide.background ? 'text-white' : 'text-ink',
                         ].join(' ')}
                       >
@@ -823,7 +823,7 @@ export default function SlidesEditor() {
                         >
                           <div
                             className={[
-                              'text-2xs font-semibold truncate w-full tracking-tightish',
+                              'text-2xs font-semibold truncate w-full tracking-tightish pl-6',
                               slide.background ? 'text-white' : 'text-ink',
                             ].join(' ')}
                           >

@@ -45,9 +45,9 @@ export default function AdminApp() {
   const [error, setError] = useState('')
 
   return (
-    <div className="flex flex-col h-full bg-white text-gray-900">
-      <header className="flex items-center gap-4 px-6 py-4 border-b border-gray-200">
-        <h1 className="text-lg font-semibold">Admin Console</h1>
+    <div className="flex flex-col h-full bg-bg text-ink">
+      <header className="flex items-center gap-4 px-6 py-4 border-b border-line bg-bg-elev2">
+        <h1 className="text-lg font-semibold tracking-tight">Admin Console</h1>
         <nav className="flex gap-2">
           <TabButton active={tab === 'invites'} onClick={() => setTab('invites')}>
             Invites
@@ -58,7 +58,7 @@ export default function AdminApp() {
         </nav>
       </header>
       {error && (
-        <div className="mx-6 mt-4 rounded bg-red-50 border border-red-200 text-red-700 px-3 py-2 text-sm">
+        <div className="mx-6 mt-4 rounded-md bg-danger-bg border border-danger/40 text-danger px-3 py-2 text-sm">
           {error}
         </div>
       )}
@@ -79,8 +79,8 @@ function TabButton({ active, onClick, children }) {
       type="button"
       onClick={onClick}
       className={
-        'px-3 py-1 rounded text-sm font-medium ' +
-        (active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+        'px-3 py-1 rounded-md text-sm font-medium transition-colors duration-fast ' +
+        (active ? 'bg-accent text-white' : 'bg-bg-elev2 text-ink-muted hover:bg-bg-hover hover:text-ink')
       }
     >
       {children}
@@ -141,58 +141,58 @@ function InvitesPanel({ onError }) {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={mint} className="flex flex-wrap items-end gap-3 rounded border border-gray-200 p-4">
+      <form onSubmit={mint} className="flex flex-wrap items-end gap-3 rounded-lg border border-line bg-paper p-4">
         <label className="flex flex-col text-sm">
-          <span className="text-gray-600 mb-1">Note (e.g. invitee email)</span>
+          <span className="text-ink-muted mb-1.5">Note (e.g. invitee email)</span>
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1"
+            className="bg-bg-elev2 border border-line rounded-md px-2.5 py-1.5 text-ink"
             placeholder="alice@vulos.org"
           />
         </label>
         <label className="flex flex-col text-sm">
-          <span className="text-gray-600 mb-1">Max uses</span>
+          <span className="text-ink-muted mb-1.5">Max uses</span>
           <input
             type="number"
             min="1"
             value={maxUses}
             onChange={(e) => setMaxUses(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 w-24"
+            className="bg-bg-elev2 border border-line rounded-md px-2.5 py-1.5 w-24 text-ink"
           />
         </label>
         <label className="flex flex-col text-sm">
-          <span className="text-gray-600 mb-1">Expires in (hours, 0 = never)</span>
+          <span className="text-ink-muted mb-1.5">Expires in (hours, 0 = never)</span>
           <input
             type="number"
             min="0"
             value={ttlHours}
             onChange={(e) => setTtlHours(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 w-32"
+            className="bg-bg-elev2 border border-line rounded-md px-2.5 py-1.5 w-32 text-ink"
           />
         </label>
         <button
           type="submit"
           disabled={loading}
-          className="bg-blue-600 text-white rounded px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+          className="bg-accent text-white rounded-md px-4 py-1.5 text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
         >
           Mint invite
         </button>
       </form>
 
       {minted && (
-        <div className="rounded border border-green-300 bg-green-50 p-4">
-          <p className="text-sm text-green-800 font-medium mb-1">
+        <div className="rounded-lg border border-accent-tint-2 bg-accent-tint p-4">
+          <p className="text-sm text-accent-press font-medium mb-2">
             Invite created — copy this token now. It will not be shown again.
           </p>
-          <code className="block bg-white border border-green-200 rounded px-2 py-1 text-sm break-all">
+          <code className="block bg-bg border border-line rounded-md px-2.5 py-1.5 text-sm break-all font-mono text-ink">
             {minted.token}
           </code>
         </div>
       )}
 
-      <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
-        <thead className="bg-gray-50 text-gray-600">
+      <table className="w-full text-sm border border-line rounded-lg overflow-hidden">
+        <thead className="bg-bg-elev2 text-ink-muted">
           <tr>
             <th className="text-left px-3 py-2">Note</th>
             <th className="text-left px-3 py-2">Uses</th>
@@ -204,7 +204,7 @@ function InvitesPanel({ onError }) {
         <tbody>
           {invites.length === 0 && (
             <tr>
-              <td colSpan={5} className="px-3 py-4 text-center text-gray-400">
+              <td colSpan={5} className="px-3 py-4 text-center text-ink-faint">
                 No invites yet.
               </td>
             </tr>
@@ -213,7 +213,7 @@ function InvitesPanel({ onError }) {
             const spent = inv.max_uses > 0 && inv.used_count >= inv.max_uses
             const status = inv.revoked ? 'revoked' : spent ? 'used up' : 'active'
             return (
-              <tr key={inv.id} className="border-t border-gray-100">
+              <tr key={inv.id} className="border-t border-line">
                 <td className="px-3 py-2">{inv.note || '—'}</td>
                 <td className="px-3 py-2">
                   {inv.used_count}/{inv.max_uses}
@@ -225,7 +225,7 @@ function InvitesPanel({ onError }) {
                     <button
                       type="button"
                       onClick={() => revoke(inv.id)}
-                      className="text-red-600 hover:underline"
+                      className="text-danger hover:underline"
                     >
                       Revoke
                     </button>
@@ -259,17 +259,17 @@ function AuditPanel({ onError }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Append-only — newest first.</p>
+        <p className="text-sm text-ink-faint">Append-only — newest first.</p>
         <button
           type="button"
           onClick={refresh}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-accent hover:underline"
         >
           Refresh
         </button>
       </div>
-      <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
-        <thead className="bg-gray-50 text-gray-600">
+      <table className="w-full text-sm border border-line rounded-lg overflow-hidden">
+        <thead className="bg-bg-elev2 text-ink-muted">
           <tr>
             <th className="text-left px-3 py-2">Time</th>
             <th className="text-left px-3 py-2">Actor</th>
@@ -281,18 +281,18 @@ function AuditPanel({ onError }) {
         <tbody>
           {entries.length === 0 && (
             <tr>
-              <td colSpan={5} className="px-3 py-4 text-center text-gray-400">
+              <td colSpan={5} className="px-3 py-4 text-center text-ink-faint">
                 No audit events yet.
               </td>
             </tr>
           )}
           {entries.map((e) => (
-            <tr key={e.id} className="border-t border-gray-100">
+            <tr key={e.id} className="border-t border-line">
               <td className="px-3 py-2 whitespace-nowrap">{fmtTime(e.at)}</td>
               <td className="px-3 py-2">{e.actor || '—'}</td>
               <td className="px-3 py-2">{ACTION_LABELS[e.action] || e.action}</td>
               <td className="px-3 py-2 break-all">{e.target || '—'}</td>
-              <td className="px-3 py-2 break-all text-gray-500">{e.detail || ''}</td>
+              <td className="px-3 py-2 break-all text-ink-faint">{e.detail || ''}</td>
             </tr>
           ))}
         </tbody>
