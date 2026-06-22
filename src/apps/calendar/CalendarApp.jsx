@@ -15,8 +15,37 @@ import {
   ChevronLeft, ChevronRight, Plus, X, Edit2, Trash2, Calendar,
   Clock, MapPin, Users, RefreshCw, Bell, Eye, EyeOff, Download,
   Link, Check, Circle, MoreHorizontal, List, CalendarDays, CalendarRange,
+  CalendarX2, AlertCircle, Menu,
 } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
+import { Button, IconButton, Input, LoadingState } from '../../components/ui'
+
+// ── Tokenised form controls ──────────────────────────────────────────────────
+// <Input> covers <input>; calendar also needs <select>/<textarea>. These thin
+// wrappers reuse the exact same token styling (border-line, focus-within ring,
+// 44px-friendly heights) so the Calendar app stops shipping ad-hoc inline
+// inputs and reads as one design language with the rest of the suite.
+const fieldBase =
+  'w-full bg-paper border border-line rounded-md text-ink text-sm ' +
+  'transition-[border-color,box-shadow] duration-fast ease-out ' +
+  'focus:outline-none focus:border-accent focus:shadow-focus ' +
+  'placeholder:text-ink-faint'
+
+function FieldLabel({ children, htmlFor }) {
+  return (
+    <label htmlFor={htmlFor} className="block text-xs text-ink-muted font-medium mb-1.5 tracking-tightish">
+      {children}
+    </label>
+  )
+}
+
+function Select({ className = '', ...rest }) {
+  return <select className={`${fieldBase} h-9 px-2.5 ${className}`} {...rest} />
+}
+
+function Textarea({ className = '', ...rest }) {
+  return <textarea className={`${fieldBase} px-3 py-2 resize-none ${className}`} {...rest} />
+}
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -235,32 +264,68 @@ function hoursFromMidnight(d) {
 // ── CalendarsSidebar ──────────────────────────────────────────────────────────
 
 function CalendarsSidebar({ calendars, onToggle, onAdd, onExport }) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const inputRef = useRef(null)
+
+  useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
+
+  const submit = (e) => {
+    e?.preventDefault()
+    const n = name.trim()
+    if (n) onAdd(n)
+    setName('')
+    setAdding(false)
+  }
+
   return (
-    <div className="w-52 flex-shrink-0 border-r border-line p-3 overflow-y-auto hidden lg:block">
+    <div className="flex-shrink-0 p-3 overflow-y-auto">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold text-ink-faint uppercase tracking-wider">My calendars</span>
-        <button onClick={onAdd} className="p-0.5 rounded hover:bg-bg-elev-2 text-ink-faint hover:text-ink" title="Add calendar">
-          <Plus size={12} />
-        </button>
+        <span className="text-2xs font-semibold text-ink-faint uppercase tracking-eyebrow">My calendars</span>
+        <IconButton size="sm" onClick={() => setAdding(true)} title="Add calendar">
+          <Plus size={13} />
+        </IconButton>
       </div>
+
       {calendars.map(cal => (
-        <div key={cal.id} className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-bg-elev-2 group">
-          <button onClick={() => onToggle(cal.id)} className="flex-shrink-0">
+        <div key={cal.id} className="flex items-center gap-2 min-h-[36px] py-1.5 px-1 rounded hover:bg-bg-elev-2 group">
+          <button
+            onClick={() => onToggle(cal.id)}
+            className="flex-shrink-0 w-7 h-7 -my-1 flex items-center justify-center rounded hover:bg-bg-sunk"
+            title={cal.visible ? `Hide ${cal.name}` : `Show ${cal.name}`}
+            aria-pressed={cal.visible}
+          >
             {cal.visible
               ? <div className="w-3 h-3 rounded-sm" style={{ background: cal.color }} />
               : <div className="w-3 h-3 rounded-sm border-2" style={{ borderColor: cal.color }} />
             }
           </button>
-          <span className="text-xs text-ink flex-1 truncate">{cal.name}</span>
+          <span className="text-sm text-ink flex-1 truncate">{cal.name}</span>
           <button
             onClick={() => onExport(cal.id)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-bg-elev-2 text-ink-faint"
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity w-7 h-7 flex items-center justify-center rounded hover:bg-bg-sunk text-ink-faint hover:text-ink"
             title="Export .ics"
           >
-            <Download size={11} />
+            <Download size={12} />
           </button>
         </div>
       ))}
+
+      {adding && (
+        <form onSubmit={submit} className="mt-2 flex items-center gap-1.5">
+          <Input
+            ref={inputRef}
+            size="sm"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onBlur={submit}
+            onKeyDown={e => { if (e.key === 'Escape') { setName(''); setAdding(false) } }}
+            placeholder="Calendar name"
+            className="flex-1"
+            aria-label="New calendar name"
+          />
+        </form>
+      )}
     </div>
   )
 }
@@ -272,7 +337,7 @@ function MiniMonthNav({ year, month, onPrev, onNext, onDayClick, today, selected
   const daysInMonth = new Date(year, month + 1, 0).getDate()
 
   return (
-    <div className="p-3 border-b border-line hidden lg:block">
+    <div className="p-3 border-b border-line">
       <div className="flex items-center justify-between mb-2">
         <button onClick={onPrev} className="p-0.5 rounded hover:bg-bg-elev-2 text-ink-faint"><ChevronLeft size={12} /></button>
         <span className="text-xs font-medium text-ink">{MONTH_NAMES[month].slice(0,3)} {year}</span>
@@ -523,14 +588,20 @@ function AgendaView({ events, calendars, today, onEventClick }) {
 
   if (groupKeys.length === 0) {
     return (
-      <div className="flex items-center justify-center flex-1 text-sm text-ink-faint">
-        No upcoming events.
+      <div className="flex flex-col items-center justify-center flex-1 text-center px-6 py-12 gap-3">
+        <div className="w-12 h-12 rounded-full bg-bg-elev-2 flex items-center justify-center">
+          <CalendarX2 size={22} className="text-ink-faint" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-ink">No upcoming events</p>
+          <p className="text-xs text-ink-faint mt-1">Events you create will appear here.</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-2xl">
+    <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-2xl w-full">
       {groupKeys.map(key => {
         const d = new Date(key)
         const isToday = isSameDay(d, today)
@@ -737,6 +808,7 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
   const [invitees, setInvitees]     = useState(event?.invitees || [])
   const [timeZone, setTZ]           = useState(event?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone)
   const [tab, setTab]               = useState('details') // 'details' | 'guests' | 'more'
+  const [titleError, setTitleError] = useState('')
 
   // Invitee autocomplete
   const [suggestions, setSuggestions] = useState([])
@@ -766,7 +838,11 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
 
   const handleSave = (e) => {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim()) {
+      setTitleError('Give your event a title.')
+      setTab('details')
+      return
+    }
     onSave({
       uid: event?.uid || crypto.randomUUID(),
       title: title.trim(),
@@ -788,51 +864,78 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
   const calColor = calendars.find(c => c.id === calendarId)?.color || '#0f6a6c'
   const effectiveColor = color || calColor
 
+  // Escape-to-close + focus restore (mirrors the shared <Modal> behaviour, kept
+  // local because this dialog is a bespoke tabbed form with a colour stripe).
+  const formRef = useRef(null)
+  const priorFocusRef = useRef(null)
+  useEffect(() => {
+    priorFocusRef.current = document.activeElement
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      const el = priorFocusRef.current
+      if (el && typeof el.focus === 'function') el.focus()
+    }
+  }, [onClose])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+      style={{ background: 'rgba(26, 25, 22, 0.36)', backdropFilter: 'blur(2px)' }}
+      onClick={onClose}
+    >
       <form
+        ref={formRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isNew ? 'New event' : 'Edit event'}
         onSubmit={handleSave}
-        className="relative bg-bg border border-line rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        className="relative bg-paper text-ink border border-line shadow-e3 w-full max-w-lg max-h-[92vh] sm:max-h-[90vh] flex flex-col rounded-t-xl sm:rounded-xl overflow-hidden animate-scale-in"
         onClick={e => e.stopPropagation()}
       >
         {/* Color stripe */}
-        <div className="h-1.5 rounded-t-xl" style={{ background: effectiveColor }} />
+        <div className="h-1.5 flex-shrink-0" style={{ background: effectiveColor }} />
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-line">
-          <input
-            type="text"
-            placeholder="Event title"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            autoFocus
-            required
-            className="flex-1 text-base font-semibold text-ink bg-transparent outline-none placeholder:text-ink-faint mr-3"
-          />
-          <div className="flex items-center gap-1">
+        <div className="flex items-start gap-2 px-4 sm:px-5 pt-3.5 pb-3 border-b border-line">
+          <div className="flex-1 min-w-0">
+            <input
+              type="text"
+              placeholder="Event title"
+              value={title}
+              onChange={e => { setTitle(e.target.value); if (titleError) setTitleError('') }}
+              autoFocus
+              aria-invalid={!!titleError}
+              className={[
+                'w-full text-base font-semibold text-ink bg-transparent outline-none',
+                'placeholder:text-ink-faint border-b transition-colors',
+                titleError ? 'border-danger' : 'border-transparent focus:border-line-strong',
+              ].join(' ')}
+            />
+            <p className="text-2xs text-danger mt-1 min-h-[0.85rem]" role="alert" aria-live="polite">
+              {titleError}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
             {!isNew && (
-              <button
-                type="button"
-                onClick={() => onDelete(event.uid)}
-                className="p-1.5 rounded text-ink-faint hover:text-signal-error hover:bg-signal-error-bg transition-colors"
-                title="Delete event"
-              >
+              <IconButton size="sm" onClick={() => onDelete(event.uid)} title="Delete event"
+                className="hover:text-danger hover:bg-danger-bg">
                 <Trash2 size={14} />
-              </button>
+              </IconButton>
             )}
-            <button type="button" onClick={onClose} className="p-1.5 rounded text-ink-faint hover:text-ink hover:bg-bg-elev-2">
-              <X size={14} />
-            </button>
+            <IconButton size="sm" onClick={onClose} title="Close"><X size={15} /></IconButton>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-line px-5">
+        <div className="flex border-b border-line px-2 sm:px-5 flex-shrink-0">
           {[['details','Details'],['guests','Guests'],['more','More']].map(([t, l]) => (
             <button
               key={t} type="button" onClick={() => setTab(t)}
+              aria-pressed={tab === t}
               className={[
-                'text-xs py-2 px-3 border-b-2 transition-colors',
+                'text-sm h-10 px-3 border-b-2 transition-colors tracking-tightish',
                 tab === t ? 'border-accent text-accent font-medium' : 'border-transparent text-ink-faint hover:text-ink',
               ].join(' ')}
             >
@@ -842,71 +945,72 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
 
           {tab === 'details' && (
             <>
               {/* All-day toggle */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-accent" />
+              <label className="flex items-center gap-2.5 cursor-pointer min-h-[28px]">
+                <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} className="accent-accent w-4 h-4" />
                 <span className="text-sm text-ink">All day</span>
               </label>
 
               {/* Times */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-ink-faint mb-1">Start</label>
+                  <FieldLabel>Start</FieldLabel>
                   <input
                     type={allDay ? 'date' : 'datetime-local'}
                     value={allDay ? start.slice(0,10) : start}
                     onChange={e => setStart(e.target.value)}
-                    className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-xs focus:outline-none focus:ring-2 focus:ring-accent/40"
+                    aria-label="Start"
+                    className={`${fieldBase} h-9 px-2.5`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-ink-faint mb-1">End</label>
+                  <FieldLabel>End</FieldLabel>
                   <input
                     type={allDay ? 'date' : 'datetime-local'}
                     value={allDay ? end.slice(0,10) : end}
                     onChange={e => setEnd(e.target.value)}
-                    className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-xs focus:outline-none focus:ring-2 focus:ring-accent/40"
+                    aria-label="End"
+                    className={`${fieldBase} h-9 px-2.5`}
                   />
                 </div>
               </div>
 
               {/* Location */}
-              <div className="flex items-center gap-2">
-                <MapPin size={14} className="text-ink-faint flex-shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Add location"
-                  value={location}
-                  onChange={e => setLocation(e.target.value)}
-                  className="flex-1 px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
-                />
-              </div>
+              <Input
+                leading={<MapPin size={14} />}
+                placeholder="Add location"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                aria-label="Location"
+              />
 
               {/* Description */}
-              <textarea
+              <Textarea
                 placeholder="Description"
                 value={description}
                 onChange={e => setDesc(e.target.value)}
                 maxLength={5000}
                 rows={3}
-                className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm resize-none focus:outline-none focus:ring-2 focus:ring-accent/40"
+                aria-label="Description"
               />
 
               {/* Recurrence */}
               <div>
-                <label className="block text-xs text-ink-faint mb-1.5">Repeat</label>
+                <FieldLabel>Repeat</FieldLabel>
                 <RRuleEditor value={recurrence} onChange={setRecurrence} />
               </div>
 
               {/* Reminders */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs text-ink-faint">Reminders</label>
-                  <button type="button" onClick={addReminder} className="text-xs text-accent hover:underline">+ Add</button>
+                  <FieldLabel>Reminders</FieldLabel>
+                  <Button type="button" variant="ghost" size="sm" onClick={addReminder}>
+                    <Plus size={12} /> Add
+                  </Button>
                 </div>
                 <div className="space-y-1.5">
                   {reminders.map((r, i) => (
@@ -915,21 +1019,24 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
                         type="number" min={0} max={10080}
                         value={r.minutesBefore}
                         onChange={e => updateReminder(i, 'minutesBefore', +e.target.value)}
-                        className="w-16 px-2 py-1 rounded border border-line bg-bg text-ink text-xs focus:outline-none"
+                        aria-label="Minutes before"
+                        className={`${fieldBase} w-16 h-9 px-2`}
                       />
-                      <span className="text-xs text-ink-faint">min before via</span>
-                      <select
+                      <span className="text-xs text-ink-faint whitespace-nowrap">min before via</span>
+                      <Select
                         value={r.channel}
                         onChange={e => updateReminder(i, 'channel', e.target.value)}
-                        className="px-2 py-1 rounded border border-line bg-bg text-ink text-xs focus:outline-none"
+                        className="flex-1"
+                        aria-label="Reminder channel"
                       >
                         <option value="in-app">In-app</option>
                         <option value="email">Email</option>
                         <option value="push">Push</option>
-                      </select>
-                      <button type="button" onClick={() => removeReminder(i)} className="text-ink-faint hover:text-signal-error ml-auto">
-                        <X size={12} />
-                      </button>
+                      </Select>
+                      <IconButton size="sm" onClick={() => removeReminder(i)} title="Remove reminder"
+                        className="hover:text-danger flex-shrink-0">
+                        <X size={13} />
+                      </IconButton>
                     </div>
                   ))}
                 </div>
@@ -941,15 +1048,14 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
             <>
               {/* Invitee input */}
               <div className="relative">
-                <input
-                  type="text"
+                <Input
                   placeholder="Add guests by email or name"
                   value={inviteeInput}
                   onChange={e => handleInvInput(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') { e.preventDefault(); addInvitee(inviteeInput) }
                   }}
-                  className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  aria-label="Add guests"
                 />
                 {suggestions.length > 0 && (
                   <div className="absolute z-20 top-full left-0 right-0 bg-bg border border-line rounded-lg shadow-lg mt-1 overflow-hidden">
@@ -1011,40 +1117,39 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
             <>
               {/* Calendar */}
               <div>
-                <label className="block text-xs text-ink-faint mb-1.5">Calendar</label>
-                <select
-                  value={calendarId}
-                  onChange={e => setCalendarId(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
-                >
+                <FieldLabel>Calendar</FieldLabel>
+                <Select value={calendarId} onChange={e => setCalendarId(e.target.value)} aria-label="Calendar">
                   {calendars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                </Select>
               </div>
 
               {/* Color */}
               <div>
-                <label className="block text-xs text-ink-faint mb-1.5">Color</label>
-                <div className="flex gap-1.5 flex-wrap">
+                <FieldLabel>Color</FieldLabel>
+                <div className="flex gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={() => setColor('')}
-                    className={['w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all',
+                    className={['w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all',
                       !color ? 'border-ink scale-110' : 'border-transparent hover:scale-105',
                     ].join(' ')}
                     style={{ background: calColor }}
                     title="Calendar default"
+                    aria-pressed={!color}
                   >
-                    {!color && <Check size={10} className="text-white" />}
+                    {!color && <Check size={11} className="text-white" />}
                   </button>
                   {EVENT_COLORS.map(c => (
                     <button
                       key={c} type="button" onClick={() => setColor(c)}
-                      className={['w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all',
+                      className={['w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all',
                         color === c ? 'border-ink scale-110' : 'border-transparent hover:scale-105',
                       ].join(' ')}
                       style={{ background: c }}
+                      title={c}
+                      aria-pressed={color === c}
                     >
-                      {color === c && <Check size={10} className="text-white" />}
+                      {color === c && <Check size={11} className="text-white" />}
                     </button>
                   ))}
                 </div>
@@ -1052,43 +1157,29 @@ function EventModal({ event, calendars, contacts, onSave, onClose, onDelete }) {
 
               {/* Visibility */}
               <div>
-                <label className="block text-xs text-ink-faint mb-1.5">Visibility</label>
-                <select
-                  value={visibility}
-                  onChange={e => setVis(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
-                >
+                <FieldLabel>Visibility</FieldLabel>
+                <Select value={visibility} onChange={e => setVis(e.target.value)} aria-label="Visibility">
                   <option value="default">Default</option>
                   <option value="public">Public</option>
                   <option value="private">Private</option>
-                </select>
+                </Select>
               </div>
 
               {/* Time zone */}
-              <div>
-                <label className="block text-xs text-ink-faint mb-1.5">Time zone</label>
-                <input
-                  type="text"
-                  value={timeZone}
-                  onChange={e => setTZ(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-md border border-line bg-bg text-ink text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
-                  placeholder="e.g. America/New_York"
-                />
-              </div>
+              <Input
+                label="Time zone"
+                value={timeZone}
+                onChange={e => setTZ(e.target.value)}
+                placeholder="e.g. America/New_York"
+              />
             </>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-line">
-          <button type="button" onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-sm text-ink-muted hover:bg-bg-elev-2 transition-colors">
-            Cancel
-          </button>
-          <button type="submit"
-            className="px-4 py-1.5 rounded-md text-sm text-white bg-accent hover:bg-accent-hover transition-colors font-medium">
-            {isNew ? 'Create event' : 'Save'}
-          </button>
+        <div className="flex justify-end gap-2 px-4 sm:px-5 py-3 border-t border-line bg-bg-elev2 flex-shrink-0">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary">{isNew ? 'Create event' : 'Save'}</Button>
         </div>
       </form>
     </div>
@@ -1124,6 +1215,10 @@ export default function CalendarApp() {
   // Modal
   const [showModal, setShowModal] = useState(false)
   const [editingEvent, setEditingEvent] = useState(null)
+
+  // Mobile sidebar drawer (the mini-month + calendars list collapse off-canvas
+  // below lg and slide in over a scrim).
+  const [mobileNav, setMobileNav] = useState(false)
 
   // Load
   const load = useCallback(async () => {
@@ -1245,81 +1340,114 @@ export default function CalendarApp() {
 
   return (
     <div className="flex h-full bg-bg text-ink overflow-hidden" style={{ fontFamily: 'var(--font-sans)' }}>
-      {/* Sidebar */}
-      <div className="hidden lg:flex flex-col w-52 flex-shrink-0 border-r border-line">
-        <MiniMonthNav
-          year={year} month={month}
-          onPrev={prevPeriod} onNext={nextPeriod}
-          onDayClick={d => { setSelectedDate(d); setYear(d.getFullYear()); setMonth(d.getMonth()) }}
-          today={today} selectedDate={selectedDate}
-        />
-        <CalendarsSidebar
-          calendars={calendars}
-          onToggle={toggleCalendar}
-          onAdd={() => {
-            const name = prompt('Calendar name:')
-            if (name) setCalendars(prev => [...prev, { id: name.toLowerCase().replace(/\s+/g,'-'), name, color: EVENT_COLORS[prev.length % EVENT_COLORS.length], visible: true }])
-          }}
-          onExport={exportCalendar}
-        />
-      </div>
+      {(() => {
+        const addCalendar = (name) => setCalendars(prev => [
+          ...prev,
+          { id: name.toLowerCase().replace(/\s+/g, '-'), name, color: EVENT_COLORS[prev.length % EVENT_COLORS.length], visible: true },
+        ])
+        const sidebarBody = (
+          <>
+            <MiniMonthNav
+              year={year} month={month}
+              onPrev={prevPeriod} onNext={nextPeriod}
+              onDayClick={d => { setSelectedDate(d); setYear(d.getFullYear()); setMonth(d.getMonth()); setMobileNav(false) }}
+              today={today} selectedDate={selectedDate}
+            />
+            <CalendarsSidebar
+              calendars={calendars}
+              onToggle={toggleCalendar}
+              onAdd={addCalendar}
+              onExport={exportCalendar}
+            />
+          </>
+        )
+        return (
+          <>
+            {/* Sidebar — fixed rail ≥lg */}
+            <div className="hidden lg:flex flex-col w-52 flex-shrink-0 border-r border-line">
+              {sidebarBody}
+            </div>
+
+            {/* Sidebar — off-canvas drawer <lg */}
+            {mobileNav && (
+              <div className="fixed inset-0 z-40 lg:hidden">
+                <div
+                  className="absolute inset-0 bg-black/40 animate-fade-in"
+                  onClick={() => setMobileNav(false)}
+                  aria-hidden
+                />
+                <div className="absolute left-0 top-0 bottom-0 w-64 max-w-[80vw] bg-bg-elev-1 border-r border-line shadow-e3 flex flex-col overflow-y-auto animate-slide-in-right">
+                  <div className="flex items-center justify-between px-3 h-12 border-b border-line flex-shrink-0">
+                    <span className="text-sm font-semibold text-ink">Calendar</span>
+                    <IconButton size="sm" onClick={() => setMobileNav(false)} title="Close menu">
+                      <X size={15} />
+                    </IconButton>
+                  </div>
+                  {sidebarBody}
+                </div>
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       {/* Main */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Top bar */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line flex-shrink-0 bg-bg-elev-1">
-          <button
-            onClick={goToday}
-            className="text-xs px-3 py-1.5 rounded-md border border-line text-ink-muted hover:bg-bg-elev-2 transition-colors font-medium"
-          >
-            Today
-          </button>
-          <button onClick={prevPeriod} className="p-1 rounded hover:bg-bg-elev-2 text-ink-muted"><ChevronLeft size={16} /></button>
-          <button onClick={nextPeriod} className="p-1 rounded hover:bg-bg-elev-2 text-ink-muted"><ChevronRight size={16} /></button>
-          <span className="text-sm font-semibold text-ink flex-1">{periodLabel()}</span>
+        <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 border-b border-line flex-shrink-0 bg-bg-elev-1">
+          <IconButton size="sm" className="lg:hidden" onClick={() => setMobileNav(true)} title="Open menu">
+            <Menu size={16} />
+          </IconButton>
+          <Button size="sm" onClick={goToday}>Today</Button>
+          <IconButton size="sm" onClick={prevPeriod} title="Previous"><ChevronLeft size={16} /></IconButton>
+          <IconButton size="sm" onClick={nextPeriod} title="Next"><ChevronRight size={16} /></IconButton>
+          <span className="text-sm font-semibold text-ink flex-1 min-w-0 truncate">{periodLabel()}</span>
 
           {/* View switcher */}
-          <div className="flex items-center rounded-md border border-line overflow-hidden">
+          <div className="flex items-center rounded-md border border-line overflow-hidden flex-shrink-0">
             {['month','week','day','agenda'].map(v => (
               <button
                 key={v}
                 onClick={() => setView(v)}
                 title={`${v} view (${v[0]})`}
+                aria-pressed={view === v}
                 className={[
-                  'flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors',
+                  'flex items-center gap-1 px-2.5 h-8 text-xs transition-colors',
                   view === v ? 'bg-accent text-white' : 'text-ink-muted hover:bg-bg-elev-2',
                 ].join(' ')}
               >
                 {VIEW_ICONS[v]}
-                <span className="hidden sm:inline capitalize">{v}</span>
+                <span className="hidden md:inline capitalize">{v}</span>
               </button>
             ))}
           </div>
 
-          <button
-            onClick={() => openNewEvent(selectedDate)}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-hover transition-colors font-medium"
-          >
-            <Plus size={12} /> New event
-          </button>
+          <Button size="sm" variant="primary" onClick={() => openNewEvent(selectedDate)} className="flex-shrink-0">
+            <Plus size={13} />
+            <span className="hidden sm:inline">New event</span>
+          </Button>
 
-          <button onClick={load} className="p-1.5 rounded hover:bg-bg-elev-2 text-ink-faint" title="Refresh">
-            <RefreshCw size={14} />
-          </button>
+          <IconButton size="sm" onClick={load} title="Refresh"><RefreshCw size={14} /></IconButton>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="mx-4 mt-2 px-4 py-2 rounded-lg bg-signal-error-bg text-signal-error text-sm flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="ml-2 underline text-xs">dismiss</button>
-          </div>
-        )}
+        {/* Error — inline, dismissible, announced to assistive tech */}
+        <div role="alert" aria-live="assertive">
+          {error && (
+            <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-lg bg-danger-bg text-danger text-sm flex items-start gap-2.5 animate-fade-in">
+              <AlertCircle size={15} className="flex-shrink-0 mt-px" />
+              <span className="flex-1 min-w-0">{error}</span>
+              <button
+                onClick={() => setError(null)}
+                className="text-xs underline underline-offset-2 hover:no-underline flex-shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
 
         {loading ? (
-          <div className="flex items-center justify-center flex-1">
-            <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          </div>
+          <LoadingState label="Loading your calendar…" />
         ) : (
           <div className="flex flex-col flex-1 overflow-hidden">
             {view === 'month' && (
