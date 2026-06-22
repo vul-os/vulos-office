@@ -1,71 +1,36 @@
 <div align="center">
 
-<img src="public/vula-office.png" alt="Vulos Office Logo" width="120" />
+<img src="public/vula-office.png" alt="Vulos Office" width="120" />
 
 # Vulos Office
 
-**Documents · Sheets · Slides · PDF · Spaces · Calendar · Contacts · Meetings**
+**A sovereign, self-hostable office suite — your documents, your server, your rules.**
+
+Docs · Sheets · Slides · Calendar · Contacts · Spaces · Meet · Signing
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/vul-os/vulos-office/actions)
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://golang.org)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://golang.org)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/vul-os/vulos-office/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 *Vulos — rooted in **vula**, the Zulu and Xhosa word for **open**.*
 
-<sub>Part of the <strong><a href="https://vulos.org">Vulos</a></strong> OS suite &nbsp;<img src="docs/assets/vulos-logo.png" alt="Vulos" height="16" style="vertical-align:middle" /></sub>
-
-![Vulos Office](docs/screenshots/hero.png)
+<sub>Part of the <strong><a href="https://vulos.org">Vulos</a></strong> suite</sub>
 
 </div>
 
 ---
 
-## Overview
+## What is this?
 
-Vulos Office is a self-hosted, open-source office suite that ships as a **single Go binary**. It brings document editing, spreadsheets, presentations, PDF annotation and signing, team chat (Spaces), calendar, and contacts together in a clean, modern interface — no cloud account required, no telemetry, no lock-in.
+Vulos Office is a complete, open-source office suite that ships as a **single Go binary** with the entire frontend embedded — no cloud account, no telemetry, no lock-in. It brings document editing, spreadsheets, presentations, a calendar, contacts, team chat, meetings, and cryptographic document signing together in one clean, modern web interface.
 
-It stands as a tribute to the spirit of **LibreOffice** and **OpenOffice** — the pioneers who proved that powerful productivity software could be free, open, and community-driven. Vulos carries that torch into the browser, with a lightweight Go backend and a fast React frontend, deployable anywhere in seconds.
+It is **independently self-hostable by default**: with zero configuration it runs as a single-user, local-storage app on your own machine. Everything that *could* tie it to an external service lives behind a small, clean **seam** — so you can run it fully standalone, or opt into the [vulos-cloud](#optional-the-vulos-cloud-seam) control plane for multi-tenant identity, entitlements, and usage. The core never imports cloud code; remove the adapter and the standalone build still compiles.
+
+It stands as a tribute to **LibreOffice** and **OpenOffice** — the pioneers who proved productivity software could be free, open, and community-driven — and carries that torch into the browser with a fast React frontend and a lightweight Go backend.
 
 > *"Vula" — open the door. Vulos Office is that door.*
-
-Vulos Office is also published as an npm library (`@vulos/office-client`) so the Vulos OS shell can embed any surface as a native app panel:
-
-```js
-import { DocsEditor }   from '@vulos/office-client/docs'
-import { SheetsEditor } from '@vulos/office-client/sheets'
-import { SlidesEditor } from '@vulos/office-client/slides'
-import { PDFEditor }    from '@vulos/office-client/pdf'
-import { SpacesApp }    from '@vulos/office-client/spaces'
-import { CalendarApp }  from '@vulos/office-client/calendar'
-import { ContactsApp }  from '@vulos/office-client/contacts'
-```
-
-> **Codebase rule:** this repo uses `.jsx` only — never `.tsx`.
-
----
-
-## Screenshots
-
-See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for the full gallery and instructions to regenerate.
-
-| Home | Docs Editor |
-|------|-------------|
-| ![Home](docs/screenshots/home.png) | ![Docs Editor](docs/screenshots/docs-editor.png) |
-
-| Sheets Editor | Slides Editor |
-|---------------|---------------|
-| ![Sheets Editor](docs/screenshots/sheets-editor.png) | ![Slides Editor](docs/screenshots/slides-editor.png) |
-
-| Spaces | Calendar |
-|--------|----------|
-| ![Spaces](docs/screenshots/spaces.png) | ![Calendar](docs/screenshots/calendar.png) |
-
-| Contacts | Meetings |
-|----------|---------|
-| ![Contacts](docs/screenshots/contacts.png) | ![Meetings](docs/screenshots/meetings.png) |
 
 ---
 
@@ -73,20 +38,65 @@ See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for the full gallery and instru
 
 | Surface | Description |
 |---------|-------------|
-| **Documents** | Rich text editing via TipTap — headings, tables, lists, task lists, links, images, track-changes, comments |
-| **Spreadsheets** | Full-featured grid via Fortune Sheet — formulas, formatting, multi-sheet, charts, pivot tables, import/export |
-| **Presentations** | Slide editor powered by Reveal.js — create, theme, transition, and present from the browser |
-| **PDF** | View, annotate, sign; multi-party signing envelopes with cryptographic audit trail |
-| **Vulos Spaces** | Team channels, DMs, threads, reactions, pins, search, presence, voice/video meetings |
-| **Calendar** | Events, recurrence (iCalendar/rrule), reminders, `.ics` import/export |
-| **Contacts** | Contact management, vCard import/export, duplicate detection |
-| **Export** | `.docx`, `.xlsx`, `.pptx`, `.pdf`, Markdown |
-| **Import** | DOCX, XLSX, CSV, PPTX, URL, local file |
-| **Auth** | Optional password-based auth with JWT — off by default for local use |
-| **Storage** | Local JSON files (default); PostgreSQL (multi-user); S3-compatible (Tigris/MinIO) |
-| **Single binary** | Go embeds the entire frontend — one file to deploy |
-| **PWA-ready** | Installable as a desktop/mobile app via web manifest |
-| **Observability** | Prometheus metrics + OpenTelemetry traces |
+| **Docs** | Rich-text editing via TipTap — headings, tables, task lists, links, images, comments |
+| **Sheets** | Full spreadsheet grid via Fortune Sheet — formulas, formatting, multi-sheet, charts, pivots |
+| **Slides** | Presentation editor powered by Reveal.js — theme, transition, and present from the browser |
+| **Calendar** | Events, recurrence (iCalendar / rrule), reminders, `.ics` import / export |
+| **Contacts** | Contact management with vCard import / export and duplicate detection |
+| **Spaces** | Team channels, DMs, threads, reactions, pins, search, and presence |
+| **Meet** | Voice / video meetings launched straight from a Space |
+| **Signing** | View, annotate, and sign PDFs; multi-party signing envelopes with a cryptographic audit trail |
+| **Import / Export** | `.docx`, `.xlsx`, `.csv`, `.pptx`, `.pdf`, Markdown, and from URL |
+| **Storage** | Local files + SQLite by default; optional PostgreSQL for multi-user |
+| **Auth** | Optional password / JWT login — off by default for local use |
+| **Single binary** | The Go server embeds the whole frontend — one file to deploy |
+| **PWA-ready** | Installable as a desktop / mobile app via web manifest |
+| **Observability** | Prometheus metrics at `/metrics` and optional OpenTelemetry traces |
+
+Every surface is also published as an npm library (`@vulos/office-client`) so the Vulos shell — or your own app — can embed any editor as a native panel:
+
+```js
+import { DocsEditor }   from '@vulos/office-client/docs'
+import { SheetsEditor } from '@vulos/office-client/sheets'
+import { SlidesEditor } from '@vulos/office-client/slides'
+import { CalendarApp }  from '@vulos/office-client/calendar'
+import { ContactsApp }  from '@vulos/office-client/contacts'
+```
+
+---
+
+## Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│  React + Vite + Tailwind frontend  (JSX only)          │
+│  Docs · Sheets · Slides · Calendar · Contacts ·        │
+│  Spaces · Meet · Signing                                │
+└────────────────────────────────────────────────────────┘
+                 │  embedded into the binary
+                 ▼
+┌────────────────────────────────────────────────────────┐
+│  Go backend (Gin)                                       │
+│  handlers · userauth · spaces · signing · storage · obs │
+│                                                         │
+│  backend/seam  ── Identity · Entitlements · Usage ──┐   │
+│   standalone defaults (local, unlimited, no-op)     │   │
+└─────────────────────────────────────────────────────┼──┘
+                                                       │ optional
+                                                       ▼
+                                  backend/integration/cloud
+                                  (vulos-cloud adapter, opt-in)
+```
+
+The boundary between Office's core and any external control plane is a small set of Go interfaces in `backend/seam`. The composition root (`main.go`) wires the standalone defaults via `seam.NewStandaloneProvider(...)`:
+
+| Interface | Standalone default |
+|-----------|--------------------|
+| `seam.Identity` | `LocalIdentity` — verifies Office's own HS256 session JWT |
+| `seam.Entitlements` | `LocalEntitlements` — unlimited, `self-hosted` tier, all features |
+| `seam.Usage` | `NoopUsage` — discards metering (Prometheus still exported) |
+
+The cloud adapter lives in a **separate package** and is selected *only* when `VULOS_CP_BASE_URL` is set. With it unset (the default), none of it runs. See [SELFHOST.md](SELFHOST.md) for the full seam contract.
 
 ---
 
@@ -94,41 +104,37 @@ See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for the full gallery and instru
 
 ### Prerequisites
 
-- [Go 1.21+](https://golang.org/dl/)
+- [Go 1.25+](https://golang.org/dl/)
 - [Node.js 18+](https://nodejs.org/) and npm
 
-### Development
+### Run it (standalone, zero config)
 
 ```bash
-# Clone the repo
 git clone https://github.com/vul-os/vulos-office.git
 cd vulos-office
 
-# Install dependencies
+# Install deps and build the frontend + single binary
 npm install
-go mod tidy
-
-# Start dev server (Vite on :5173, Go API on :8080)
-npm run dev:web
-```
-
-Open [http://localhost:5173](http://localhost:5173).
-
-### Production build
-
-```bash
-# Build frontend + Go binary in one step
 npm run build
 
-# Run the single binary
+# Run — single-user, local storage, no auth, no cloud
 ./vulos-office
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The entire app is embedded in the binary.
+Open <http://localhost:8080>. Data lives in `./data` and `./uploads`. That's the whole app, in one file.
+
+### Develop
+
+```bash
+# Vite dev server (:5173) + Go API (:8080), live reload
+npm run dev:web
+```
+
+Open <http://localhost:5173>.
 
 ### Docker
 
-```sh
+```bash
 docker run -d \
   --name vulos-office \
   -p 8080:8080 \
@@ -138,67 +144,106 @@ docker run -d \
 
 ---
 
+## Configuration
+
+Config is read from `config.yaml` (see the checked-in [`config.yaml`](config.yaml)) and selected environment variables. Sensible defaults mean **no configuration is required** to run standalone.
+
+### `config.yaml`
+
+```yaml
+server:
+  addr: ":8080"
+  data_dir: "./data"
+  uploads_dir: "./uploads"
+auth:
+  enabled: false          # set true to require login
+  password: "changeme"
+  session_hours: 24
+storage:
+  type: "local"           # "local" or "postgres"
+```
+
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `VULOS_OFFICE_JWT_SECRET` | HS256 secret for session JWTs — **required when auth is enabled** |
+| `VULOS_OFFICE_DEV` | `1` uses a labelled insecure dev secret — local development only |
+| `VULOS_OFFICE_CORS_ORIGINS` | Comma-separated allowed CORS origins |
+| `VULOS_USERAUTH_DB` / `VULOS_CALSTORE_DB` / `VULOS_CONTACTSTORE_DB` / `VULOS_LOBBY_DB` | Override individual SQLite store paths |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Enable OpenTelemetry trace export |
+| `VULOS_CP_BASE_URL` | **Opt-in** vulos-cloud control plane URL (enables the cloud seam) |
+| `VULOS_CP_TOKEN` | Outbound service token for the control plane |
+| `VULOS_ORG_ID` | Tenant / org scoping (used by the cloud adapter and storage) |
+
+To enable multi-user auth (still fully standalone — no control plane):
+
+```bash
+# config.yaml → auth.enabled: true
+export VULOS_OFFICE_JWT_SECRET="$(openssl rand -hex 32)"
+./vulos-office
+```
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the complete reference.
+
+---
+
+## Development & testing
+
+```bash
+npm run dev:web        # Vite (:5173) + Go API (:8080)
+npm test               # frontend tests (Vitest)
+npm run build          # frontend dist/ + Go binary
+npm run build:all      # all sub-targets (office / talk / calendar / meet) + library
+npm run build:lib      # @vulos/office-client library only
+
+# Backend
+go test ./...
+go vet ./...
+```
+
+> **Frozen invariants:** pure Go (no CGO), JSX only (never `.tsx`), no Google SSO, no Stripe. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Self-hosting
+
+Vulos Office is **built to be self-hosted by you**, not rented from anyone. The standalone path is the default and requires no cloud, no account, and no external service:
+
+- **Identity** is local — every request is the `self` account in single-user mode; flip on multi-user auth with a JWT secret.
+- **Entitlements** are unlimited (`tier: self-hosted`) — no metering, no quotas, all features on.
+- **Storage** is local files + SQLite under `./data` and `./uploads`.
+
+Full standalone instructions, the seam contract, and the optional cloud integration are in **[SELFHOST.md](SELFHOST.md)**. Deployment notes (Docker, single-box co-location) live in [docs/DEPLOY.md](docs/DEPLOY.md) and [DEPLOY.md](DEPLOY.md).
+
+### Optional: the vulos-cloud seam
+
+Setting `VULOS_CP_BASE_URL` selects the `backend/integration/cloud` adapter, which implements the same `seam` interfaces against the [vulos-cloud](https://vulos.org) control plane for multi-tenant identity, entitlements, and usage. Entitlement fetches **fail open** on a transient outage. Leave it unset and Office is 100% standalone.
+
+---
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [SELFHOST.md](SELFHOST.md) | Run fully standalone (no vulos-cloud); the optional cloud seam |
+| [SELFHOST.md](SELFHOST.md) | Run fully standalone; the optional cloud seam |
 | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | Full setup walkthrough |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component map and key design decisions |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars, config.yaml reference, OTEL/SMTP |
-| [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) | Screenshot gallery + how to regenerate |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component map and design decisions |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Env vars, `config.yaml`, OTEL / SMTP reference |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Self-hosting, Docker, single-box co-location |
-| [docs/INSTALL.md](docs/INSTALL.md) | Single-box install with Vulos OS |
-| [docs/RELEASING.md](docs/RELEASING.md) | Release policy and CI pipeline |
-| [ROADMAP.md](ROADMAP.md) | Planned features and milestones |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [TASKS.md](TASKS.md) | Implementation task tracker |
-| [DEPLOY.md](DEPLOY.md) | Static CDN deploy (Tigris) |
+| [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) | Plans and version history |
 
 ---
 
-## Development
+## Security
 
-### Build and test
-
-```bash
-# Frontend dev server (Vite :5173) + Go API (:8080)
-npm run dev:web
-
-# Run all frontend tests
-npm test
-
-# Build monolithic dist/ + Go binary
-npm run build
-
-# Build all sub-targets (office / talk / calendar / meet) + library
-npm run build:all
-
-# Build library only (dist-lib/ for @vulos/office-client consumers)
-npm run build:lib
-```
-
-### Regenerate screenshots
-
-```bash
-npm run screenshots
-```
-
-Builds and starts a temporary Go server seeded with demo data (Spaces channels, calendar events, contacts, meetings, and sample docs/sheets/slides), captures all app surfaces at 1440×900, then stops the server. No separate dev server required. See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for details.
+Found a vulnerability? Please report it responsibly — see **[SECURITY.md](SECURITY.md)** for scope, the disclosure process, and our response SLA. Do not open public issues for security reports.
 
 ---
 
 ## Contributing
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you'd like to change.
-
-1. Fork the repo
-2. Create your branch (`git checkout -b feat/my-feature`)
-3. Commit your changes (`git commit -m 'feat: add my feature'`)
-4. Push to the branch (`git push origin feat/my-feature`)
-5. Open a Pull Request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, code style, and security disclosure policy.
+Pull requests are welcome — bug fixes, signing robustness, accessibility, tests, and docs especially. For major changes, open an issue first. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, code style, and the frozen invariants. No CLA required.
 
 ---
 
