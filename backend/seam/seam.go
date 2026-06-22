@@ -80,9 +80,6 @@ type Entitlement struct {
 	// MaxSeats caps the number of members/seats for the account/org. <=0 = unlimited.
 	MaxSeats int64
 
-	// MaxMeetingMinutes caps meeting minutes per period. <=0 = unlimited.
-	MaxMeetingMinutes int64
-
 	// Suspended, when true, means the account is delinquent/disabled at the
 	// control plane: writes and invites must be blocked even if caps are not yet
 	// reached. The standalone default is always false.
@@ -129,11 +126,15 @@ const (
 type UsageEvent struct {
 	AccountID string
 	OrgID     string
-	// Kind names the metered dimension ("file.create", "storage.bytes",
-	// "meeting.minutes", ...).
+	// Kind names the metered dimension (seam.KindStorage / seam.KindSeats).
 	Kind string
 	// Value is the quantity for this event (count or bytes or minutes).
 	Value int64
+	// IdempotencyKey uniquely identifies this event so the control plane can
+	// dedupe retries / at-least-once delivery and never double-bill a single
+	// action. The billing layer assigns a fresh UUID per emitted event. Empty in
+	// standalone mode (the no-op Usage reporter ignores it).
+	IdempotencyKey string
 }
 
 // Usage reports metering for billing/observability.

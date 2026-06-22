@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"vulos-office/backend/seam"
+
+	"github.com/google/uuid"
 )
 
 // provider is the process-wide seam provider wired by main.go. Until Configure
@@ -236,9 +238,10 @@ func (r *StorageReservation) Commit(ctx context.Context) {
 	}
 	if r.bytes > 0 {
 		current().Usage.Report(ctx, seam.UsageEvent{
-			AccountID: r.accountID,
-			Kind:      seam.KindStorage,
-			Value:     r.bytes,
+			AccountID:      r.accountID,
+			Kind:           seam.KindStorage,
+			Value:          r.bytes,
+			IdempotencyKey: uuid.NewString(),
 		})
 	}
 }
@@ -275,9 +278,10 @@ func MeterStorage(ctx context.Context, accountID string, n int64) {
 	committed[accountID] += n
 	storageMu.Unlock()
 	current().Usage.Report(ctx, seam.UsageEvent{
-		AccountID: accountID,
-		Kind:      seam.KindStorage,
-		Value:     n,
+		AccountID:      accountID,
+		Kind:           seam.KindStorage,
+		Value:          n,
+		IdempotencyKey: uuid.NewString(),
 	})
 }
 
@@ -305,8 +309,9 @@ func GateSeats(ctx context.Context, accountID string, currentSeats int64) Decisi
 // MeterSeats reports a seats Usage event for one added member/seat.
 func MeterSeats(ctx context.Context, accountID string) {
 	current().Usage.Report(ctx, seam.UsageEvent{
-		AccountID: accountID,
-		Kind:      seam.KindSeats,
-		Value:     1,
+		AccountID:      accountID,
+		Kind:           seam.KindSeats,
+		Value:          1,
+		IdempotencyKey: uuid.NewString(),
 	})
 }

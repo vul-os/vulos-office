@@ -188,22 +188,27 @@ type cpUsage struct {
 
 // cpUsageBody is the shared cp contract for a usage report:
 //
-//	POST {cp}/api/usage  { product:"office", account_id, kind:"storage|seats", count, bytes }
+//	POST {cp}/api/usage  { product:"office", account_id, kind:"storage|seats", count, bytes, idempotency_key }
+//
+// idempotency_key uniquely identifies the event so the control plane can dedupe
+// at-least-once retries and never double-bill a single action.
 type cpUsageBody struct {
-	Product   string `json:"product"`
-	AccountID string `json:"account_id"`
-	Kind      string `json:"kind"`
-	Count     int64  `json:"count"`
-	Bytes     int64  `json:"bytes"`
+	Product        string `json:"product"`
+	AccountID      string `json:"account_id"`
+	Kind           string `json:"kind"`
+	Count          int64  `json:"count"`
+	Bytes          int64  `json:"bytes"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 func (u *cpUsage) Report(ctx context.Context, ev seam.UsageEvent) {
 	// Map the seam's neutral UsageEvent.Kind onto the cp's kind+count/bytes
 	// dimensions. "storage.bytes" → bytes; everything else → a unit count.
 	body := cpUsageBody{
-		Product:   "office",
-		AccountID: ev.AccountID,
-		Kind:      ev.Kind,
+		Product:        "office",
+		AccountID:      ev.AccountID,
+		Kind:           ev.Kind,
+		IdempotencyKey: ev.IdempotencyKey,
 	}
 	switch ev.Kind {
 	case seam.KindStorage:
