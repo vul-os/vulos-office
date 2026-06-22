@@ -34,16 +34,16 @@ import { useFilesStore } from '../store/filesStore'
 import NewFileModal from './NewFileModal'
 import { Sidebar, IconButton, Tooltip, useTheme } from './ui'
 
-// One restrained warm tint per app — these read as "category", not as accents.
-// Avoiding indigo/blue keeps the deep-teal accent unique.
+// Icons stay neutral (ink-faint) at rest so the rail reads calm; they brighten
+// to teal only when their app is active — the cloud "restrained accent" trait.
 const NAV_APPS = [
-  { label: 'Docs',     icon: FileText,      route: '/docs',     tint: 'text-oat-700' },
-  { label: 'Sheets',   icon: Table2,        route: '/sheets',   tint: 'text-success' },
-  { label: 'Slides',   icon: Presentation,  route: '/slides',   tint: 'text-warning' },
-  { label: 'PDF',      icon: FileSearch,    route: '/pdf',      tint: 'text-danger'  },
-  { label: 'Spaces',   icon: MessageSquare, route: '/spaces',   tint: 'text-info'    },
-  { label: 'Calendar', icon: CalendarDays,  route: '/calendar', tint: 'text-accent', beta: true },
-  { label: 'Contacts', icon: BookUser,      route: '/contacts', tint: 'text-accent', beta: true },
+  { label: 'Docs',     icon: FileText,      route: '/docs'     },
+  { label: 'Sheets',   icon: Table2,        route: '/sheets'   },
+  { label: 'Slides',   icon: Presentation,  route: '/slides'   },
+  { label: 'PDF',      icon: FileSearch,    route: '/pdf'      },
+  { label: 'Spaces',   icon: MessageSquare, route: '/spaces'   },
+  { label: 'Calendar', icon: CalendarDays,  route: '/calendar', beta: true },
+  { label: 'Contacts', icon: BookUser,      route: '/contacts', beta: true },
 ]
 
 function ThemeCycler() {
@@ -86,36 +86,34 @@ function SidebarContent({ collapsed, onNavigate, onNewFile }) {
           onClick={() => { onNewFile(); onNavigate?.() }}
           title="New file"
           className={[
-            'relative flex items-center gap-2 h-9 px-3 rounded-md',
-            'bg-accent text-white shadow-e1',
-            'hover:bg-accent-hover active:bg-accent-press',
-            'transition-colors duration-fast ease-out',
-            'text-sm font-medium tracking-tightish',
-            collapsed ? 'justify-center px-0' : '',
+            'relative flex items-center gap-2 h-9 mt-2 rounded-lg',
+            'bg-accent text-white border border-accent shadow-e1',
+            'hover:bg-accent-hover active:translate-y-px',
+            'transition-[background,transform] duration-fast ease-out',
+            'text-[13px] font-semibold tracking-tightish',
+            collapsed ? 'justify-center px-0' : 'px-3',
           ].join(' ')}
         >
-          <Plus size={15} className="flex-shrink-0" />
-          {!collapsed && <span>New</span>}
+          <Plus size={16} strokeWidth={2.2} className="flex-shrink-0" />
+          {!collapsed && <span>New file</span>}
         </button>
-      </Sidebar.Section>
-
-      <Sidebar.Section>
-        <Sidebar.Item to="/" end icon={HomeIcon} title="Home" onClick={onNavigate}>Home</Sidebar.Item>
+        <div className="mt-1.5">
+          <Sidebar.Item to="/" end icon={HomeIcon} title="Home" onClick={onNavigate}>Home</Sidebar.Item>
+        </div>
       </Sidebar.Section>
 
       <Sidebar.Section label="Apps">
-        {NAV_APPS.map(({ label, icon, route, tint, beta }) => (
+        {NAV_APPS.map(({ label, icon, route, beta }) => (
           <Sidebar.Item
             key={route}
             to={route}
             icon={icon}
-            iconAccent={tint}
             title={beta ? `${label} (beta)` : label}
             onClick={onNavigate}
           >
             {label}
             {beta && !collapsed && (
-              <span className="ml-1 text-[9px] px-1 py-px rounded bg-accent-tint text-accent font-medium leading-none align-middle">
+              <span className="font-mono text-[8.5px] px-1 py-px rounded-sm bg-brand-purple-subtle text-brand-purple font-medium leading-none uppercase tracking-wide">
                 beta
               </span>
             )}
@@ -210,8 +208,9 @@ function Shell({ children }) {
           <IconButton size="md" onClick={() => setMobileOpen(true)} title="Open navigation">
             <Menu size={18} />
           </IconButton>
-          <img src="/vula-office.png" alt="" className="w-6 h-6 rounded-md object-cover" />
-          <span className="text-sm font-semibold tracking-tightish text-ink">Vulos Office</span>
+          <img src="/vula-office.png" alt="" className="w-6 h-6 rounded-md object-cover ring-1 ring-line-strong" />
+          <span className="text-sm font-semibold tracking-tightish text-ink">Vulos</span>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-ink-faint">Office</span>
         </header>
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</div>
       </main>
