@@ -163,7 +163,7 @@ export default function PivotPanel({ data, onClose, onInsert }) {
   const sel = 'w-full rounded-md border border-line bg-bg px-2 py-1.5 text-xs text-ink focus:outline-none focus:border-line-strong'
 
   return (
-    <div className="flex flex-col w-72 h-full border-l border-line bg-paper overflow-y-auto">
+    <div className="flex flex-col w-full sm:w-72 flex-shrink-0 h-full border-l border-line bg-paper overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-line">
         <span className="text-xs font-semibold text-ink tracking-tightish">Pivot table</span>

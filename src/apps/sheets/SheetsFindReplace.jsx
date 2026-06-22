@@ -152,7 +152,7 @@ export default function SheetsFindReplace({ data, onChange, onClose }) {
 
   return (
     <div
-      className="absolute top-1 right-2 z-50 bg-paper border border-line rounded-lg shadow-e2 p-3 w-80 animate-scale-in"
+      className="absolute top-1 right-2 left-2 sm:left-auto z-50 bg-paper border border-line rounded-lg shadow-e2 p-3 w-auto sm:w-80 animate-scale-in"
       role="dialog"
       aria-label="Find and replace in sheet"
     >

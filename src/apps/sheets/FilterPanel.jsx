@@ -142,7 +142,7 @@ export default function FilterPanel({ data, onClose, onApply }) {
   const selCls   = inputCls
 
   return (
-    <div className="flex flex-col w-72 h-full border-l border-line bg-paper overflow-y-auto">
+    <div className="flex flex-col w-full sm:w-72 flex-shrink-0 h-full border-l border-line bg-paper overflow-y-auto">
       <div className="flex items-center justify-between px-3 py-2 border-b border-line">
         <span className="text-xs font-semibold text-ink tracking-tightish flex items-center gap-1.5">
           <Filter size={12} /> Filter views

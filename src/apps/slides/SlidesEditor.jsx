@@ -651,7 +651,7 @@ export default function SlidesEditor() {
         /* ── Grid / Overview mode ───────────────────────────────────────── */
         <div className="flex-1 flex flex-col overflow-hidden bg-bg">
           {/* Grid header */}
-          <div className="flex items-center justify-between px-6 py-3 bg-paper border-b border-line">
+          <div className="flex items-center justify-between px-3 sm:px-6 py-3 bg-paper border-b border-line">
             <h2 className="text-sm font-semibold text-ink">Slide Overview</h2>
             <button
               type="button"
@@ -739,7 +739,7 @@ export default function SlidesEditor() {
       ) : (
         <div className="flex-1 flex overflow-hidden slides-layout">
           {/* ── Slide thumbnail sidebar ────────────────────────────────── */}
-          <aside className="w-56 flex-shrink-0 bg-clay border-r border-line flex flex-col overflow-hidden">
+          <aside className="w-40 sm:w-48 lg:w-56 flex-shrink-0 bg-clay border-r border-line flex flex-col overflow-hidden">
             {/* Sidebar tabs */}
             <div className="flex border-b border-line">
               {SIDEBAR_TABS.map(({ id: tabId, icon: Icon, label }) => (
@@ -965,7 +965,7 @@ export default function SlidesEditor() {
           {/* ── Slide editor ─────────────────────────────────────────────── */}
           {activeSlide && (
             <div className="flex-1 flex flex-col overflow-hidden bg-bg">
-              <div className="px-6 pt-4 pb-2 bg-paper border-b border-line">
+              <div className="px-3 sm:px-6 pt-4 pb-2 bg-paper border-b border-line">
                 <input
                   value={activeSlide.title}
                   onChange={(e) => updateSlideField(activeIdx, 'title', e.target.value)}
@@ -981,7 +981,7 @@ export default function SlidesEditor() {
 
               {/* Formatting toolbar + Insert panel */}
               <div
-                className="flex items-center gap-0.5 px-3 h-10 bg-paper border-b border-line flex-wrap"
+                className="flex items-center gap-0.5 px-2 sm:px-3 h-auto min-h-10 py-1 bg-paper border-b border-line flex-wrap"
                 role="toolbar"
                 aria-label="Slide formatting"
               >
@@ -1009,7 +1009,7 @@ export default function SlidesEditor() {
                   <button
                     type="button"
                     aria-haspopup="menu"
-                    className="toolbar-btn flex items-center gap-1 px-2 min-w-[56px] text-xs"
+                    className="toolbar-btn flex items-center gap-1 px-2 min-w-0 sm:min-w-[56px] text-xs"
                     aria-label="Heading style"
                   >
                     <TypeIcon size={12} aria-hidden="true" />
@@ -1176,7 +1176,7 @@ export default function SlidesEditor() {
               </div>
 
               {/* Slide canvas */}
-              <div className="flex-1 overflow-auto px-6 py-8 bg-bg">
+              <div className="flex-1 overflow-auto px-3 sm:px-6 py-4 sm:py-8 bg-bg">
                 <article
                   className="paper-grain mx-auto bg-paper border border-line rounded-lg shadow-e1 px-12 py-10 animate-fade-in"
                   style={{ maxWidth: '900px', minHeight: '420px' }}
@@ -1197,7 +1197,7 @@ export default function SlidesEditor() {
                   className="h-1 cursor-row-resize bg-transparent hover:bg-warning/30 transition-colors flex-shrink-0"
                   title="Drag to resize notes panel"
                 />
-                <div className="flex items-center justify-between px-6 py-1 flex-shrink-0">
+                <div className="flex items-center justify-between px-3 sm:px-6 py-1 flex-shrink-0">
                   <label
                     htmlFor="slide-speaker-notes"
                     className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-eyebrow text-warning"

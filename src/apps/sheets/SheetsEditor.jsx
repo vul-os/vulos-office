@@ -199,7 +199,7 @@ function CellCommentPanel({ data, activeCell, onChange, onClose }) {
   return (
     <div
       className={[
-        'absolute right-4 top-4 z-40 w-72 bg-paper border border-line rounded-lg shadow-e3',
+        'absolute right-4 left-4 sm:left-auto top-4 z-40 w-auto sm:w-72 bg-paper border border-line rounded-lg shadow-e3',
         'flex flex-col animate-scale-in',
       ].join(' ')}
     >
@@ -553,7 +553,7 @@ export default function SheetsEditor() {
 
       {/* Draft-restore banner */}
       {draft && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-warning-bg border-b border-line text-xs text-warning animate-fade-in">
+        <div className="flex items-center gap-3 px-3 sm:px-4 py-2 bg-warning-bg border-b border-line text-xs text-warning animate-fade-in">
           <AlertCircle size={14} className="flex-shrink-0" />
           <span className="flex-1 text-ink-muted">Unsaved changes from a previous session were found.</span>
           <Button variant="primary"   size="sm" onClick={handleRestoreDraft}>Restore</Button>

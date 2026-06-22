@@ -86,7 +86,7 @@ export default function NamedRangesPanel({ data, onClose, onChange }) {
   const selCls   = inputCls
 
   return (
-    <div className="flex flex-col w-72 h-full border-l border-line bg-paper overflow-y-auto">
+    <div className="flex flex-col w-full sm:w-72 flex-shrink-0 h-full border-l border-line bg-paper overflow-y-auto">
       <div className="flex items-center justify-between px-3 py-2 border-b border-line">
         <span className="text-xs font-semibold text-ink tracking-tightish">Named ranges</span>
         <IconButton size="xs" onClick={onClose}><X size={13} /></IconButton>
