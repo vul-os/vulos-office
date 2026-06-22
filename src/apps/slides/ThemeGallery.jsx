@@ -12,6 +12,7 @@
 import { useState, useRef } from 'react'
 import { X, Upload, Check, Palette } from 'lucide-react'
 import { PRESET_THEMES, getTheme } from './themes.js'
+import { useDialogA11y } from '../../components/ui'
 
 const FONT_OPTIONS = [
   '"Inter", sans-serif',
@@ -82,6 +83,8 @@ export default function ThemeGallery({ currentThemeId, customTheme, onApply, onC
   const [custom, setCustom] = useState(customTheme || null)
   const [tab, setTab] = useState('gallery') // 'gallery' | 'custom'
   const importRef = useRef(null)
+  const dialogRef = useRef(null)
+  useDialogA11y(dialogRef, onClose)
 
   // derive preview theme
   const previewTheme = tab === 'custom' && custom
@@ -120,13 +123,14 @@ export default function ThemeGallery({ currentThemeId, customTheme, onApply, onC
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
+      ref={dialogRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Theme gallery"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-paper border border-line rounded-xl shadow-e3 w-[660px] max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-paper border border-line rounded-xl shadow-e3 w-[660px] max-w-full max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-line">
           <div className="flex items-center gap-2">

@@ -45,8 +45,24 @@ export default function SlidePreview({ data, onClose }) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
+  // Restore focus to whatever was focused before the presentation opened.
+  // (We deliberately do NOT trap focus — Reveal.js owns arrow/Space keyboard
+  // navigation while the deck is open.)
+  const priorFocusRef = useRef(null)
+  useEffect(() => {
+    priorFocusRef.current = document.activeElement
+    return () => {
+      const el = priorFocusRef.current
+      if (el && typeof el.focus === 'function') el.focus()
+    }
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col animate-fade-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Presentation"
+      className="fixed inset-0 z-50 bg-black flex flex-col animate-fade-in">
       <div className="absolute top-4 right-4 z-10">
         <button
           onClick={onClose}

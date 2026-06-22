@@ -6,12 +6,15 @@
  * Calls onApply(templateDecks) which replaces slidesData.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { X, FileText, Check } from 'lucide-react'
 import { DECK_TEMPLATES, getTheme } from './themes.js'
+import { useDialogA11y } from '../../components/ui'
 
 export default function TemplateGallery({ onApply, onClose }) {
   const [selected, setSelected] = useState(null)
+  const dialogRef = useRef(null)
+  useDialogA11y(dialogRef, onClose)
 
   const handleApply = () => {
     if (!selected) return
@@ -32,13 +35,14 @@ export default function TemplateGallery({ onApply, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in"
+      ref={dialogRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Template gallery"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-paper border border-line rounded-xl shadow-e3 w-[560px] max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-paper border border-line rounded-xl shadow-e3 w-[560px] max-w-full max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-line">
           <div className="flex items-center gap-2">
