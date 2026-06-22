@@ -132,11 +132,30 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	r.Use(cors.New(cors.Config{
-		AllowAllOrigins: true,
-		AllowMethods:    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:    []string{"Origin", "Content-Type", "Authorization"},
-	}))
+	// CORS: prefer an explicit origin allowlist (VULOS_OFFICE_CORS_ORIGINS, a
+	// comma-separated list) so credentialed cross-origin requests are restricted
+	// to trusted front-ends. When unset we fall back to AllowAllOrigins WITHOUT
+	// credentials (the SPA is same-origin embedded, so this is safe for self-host
+	// and avoids a wildcard-with-credentials misconfiguration).
+	corsCfg := cors.Config{
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Registration-Token", "X-Account-ID"},
+	}
+	if raw := strings.TrimSpace(os.Getenv("VULOS_OFFICE_CORS_ORIGINS")); raw != "" {
+		var origins []string
+		for _, o := range strings.Split(raw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				origins = append(origins, o)
+			}
+		}
+		corsCfg.AllowOrigins = origins
+		corsCfg.AllowCredentials = true
+		log.Printf("[cors] explicit origin allowlist: %v (credentials allowed)", origins)
+	} else {
+		corsCfg.AllowAllOrigins = true // no credentials → safe wildcard
+		log.Printf("[cors] no VULOS_OFFICE_CORS_ORIGINS set; allowing all origins WITHOUT credentials")
+	}
+	r.Use(cors.New(corsCfg))
 
 	// Prometheus metrics (no auth required).
 	r.GET("/metrics", gin.WrapH(obs.Handler()))
@@ -164,7 +183,7 @@ func main() {
 	// handler is constructed. Under Postgres this co-locates ACL ownership in the
 	// same DB as the files (transactional + replicated); under sqlite/local it
 	// uses the separate sqlite ACL store.
-	handlers.InitFileAuthz(store)
+	handlers.InitFileAuthz(store, cfg.Auth.Enabled)
 
 	fileHandler := handlers.NewFileHandler(store)
 	protected.GET("/files", fileHandler.List)
@@ -290,12 +309,15 @@ func main() {
 	// Recording UPLOAD is an authenticated, gated, metered storage write — it
 	// MUST be on the protected group so the account is derived from the verified
 	// identity (not ClientIP) and the storage gate/meter run on a real account.
-	// Listing/download stay semi-public (a join token validates the viewer);
-	// delete requires full auth.
+	// Listing/download/delete are ALL authenticated and membership-checked so a
+	// stranger cannot enumerate or download recordings by guessing a roomId.
 	recordingHandler := handlers.NewRecordingHandler(store)
 	protected.POST("/meet/:roomId/recordings", recordingHandler.Upload)
-	api.GET("/meet/:roomId/recordings", recordingHandler.List)
-	api.GET("/meet/:roomId/recordings/:rid", recordingHandler.Download)
+	// List + Download read meeting recordings: they MUST be authenticated and
+	// membership-checked (organizer / invitee / uploader / admin), not public —
+	// otherwise anyone who guesses a roomId can enumerate and download recordings.
+	protected.GET("/meet/:roomId/recordings", recordingHandler.List)
+	protected.GET("/meet/:roomId/recordings/:rid", recordingHandler.Download)
 	protected.DELETE("/meet/:roomId/recordings/:rid", recordingHandler.Delete)
 
 	// Sheets XLSX import/export endpoints.

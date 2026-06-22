@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 
 	"vulos-office/backend/billing"
+	"vulos-office/backend/middleware"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -25,8 +26,8 @@ import (
 )
 
 const (
-	maxRecordingBytes   = 500 << 20 // 500 MB
-	localRecordingsDir  = "./data/recordings"
+	maxRecordingBytes  = 500 << 20 // 500 MB
+	localRecordingsDir = "./data/recordings"
 )
 
 // RecordingHandler handles recording CRUD for meeting rooms.
@@ -155,9 +156,42 @@ func (h *RecordingHandler) Upload(c *gin.Context) {
 	c.JSON(http.StatusCreated, rec)
 }
 
+// canAccessRoom reports whether the verified caller may read recordings for
+// roomID. Access is granted to admins, the meeting organizer, and invitees —
+// mirroring the meeting List authz (meetings.go). A request from an
+// unauthenticated caller (no verified identity) is never granted. If the room
+// has no associated meeting record the request is denied (no enumeration of
+// recordings for arbitrary/guessed room ids).
+func (h *RecordingHandler) canAccessRoom(c *gin.Context, roomID string) bool {
+	if c.GetBool(middleware.CtxIsAdmin) {
+		return true
+	}
+	callerID := requesterID(c)
+	if callerID == "" {
+		return false
+	}
+	m, err := h.store.GetMeeting(roomID)
+	if err != nil || m == nil {
+		return false
+	}
+	if m.OrganizerID != "" && m.OrganizerID == callerID {
+		return true
+	}
+	for _, inv := range m.Invitees {
+		if inv == callerID {
+			return true
+		}
+	}
+	return false
+}
+
 // List handles GET /api/meet/:roomId/recordings
 func (h *RecordingHandler) List(c *gin.Context) {
 	roomID := c.Param("roomId")
+	if !h.canAccessRoom(c, roomID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "recording not found"})
+		return
+	}
 	recs, err := h.store.ListRecordings(roomID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -180,6 +214,14 @@ func (h *RecordingHandler) Download(c *gin.Context) {
 		return
 	}
 	if rec.RoomID != roomID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "recording not found"})
+		return
+	}
+
+	// Authz: the uploader, the meeting organizer/invitees, or an admin may
+	// download. Anyone else (including an unauthenticated caller) gets a 404 so
+	// the response never confirms a recording exists.
+	if rec.AccountID != requesterID(c) && !h.canAccessRoom(c, roomID) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "recording not found"})
 		return
 	}
