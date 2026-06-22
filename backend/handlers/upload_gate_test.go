@@ -38,6 +38,11 @@ func uploadRouter(t *testing.T) *gin.Engine {
 	return r
 }
 
+// pngMagic is the PNG file signature so http.DetectContentType sniffs the
+// uploaded bytes as image/png (the handler no longer trusts the multipart
+// Content-Type header — it sniffs the content).
+var pngMagic = []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+
 func pngUploadRequest(t *testing.T, payload []byte) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
@@ -49,7 +54,8 @@ func pngUploadRequest(t *testing.T, payload []byte) *http.Request {
 	if err != nil {
 		t.Fatalf("create part: %v", err)
 	}
-	_, _ = part.Write(payload)
+	// Prepend the PNG signature so the byte-sniff classifies it as image/png.
+	_, _ = part.Write(append(append([]byte{}, pngMagic...), payload...))
 	mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())

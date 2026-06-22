@@ -174,7 +174,11 @@ func pngUpload(t *testing.T, payload []byte) *http.Request {
 	if err != nil {
 		t.Fatalf("pngUpload: CreatePart: %v", err)
 	}
-	_, _ = part.Write(payload)
+	// The upload handler sniffs the bytes (it no longer trusts the multipart
+	// Content-Type header), so prepend the PNG signature to be classified as
+	// image/png.
+	pngMagic := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+	_, _ = part.Write(append(append([]byte{}, pngMagic...), payload...))
 	mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())

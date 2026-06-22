@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,12 +15,20 @@ import (
 	"github.com/google/uuid"
 )
 
+// maxUploadBytes caps a single upload at 10 MB.
+const maxUploadBytes = 10 << 20
+
+// allowedTypes is the allowlist of accepted upload content types, determined by
+// SNIFFING the file bytes (http.DetectContentType) — never the client-supplied
+// multipart header. image/svg+xml is intentionally EXCLUDED: SVG is an
+// active/script-bearing format and, when served inline same-origin, is a stored
+// XSS vector. Uploads are additionally served with Content-Disposition:
+// attachment (see Serve) as defence in depth.
 var allowedTypes = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
 	"image/gif":  true,
 	"image/webp": true,
-	"image/svg+xml": true,
 }
 
 type UploadHandler struct {
@@ -32,33 +41,53 @@ func NewUploadHandler(cfg *config.Config) *UploadHandler {
 }
 
 func (h *UploadHandler) Upload(c *gin.Context) {
-	file, header, err := c.Request.FormFile("file")
+	// Cap the whole request body so a multipart upload cannot stream more than
+	// the limit into memory (a single file.Read previously truncated >10MB,
+	// under-counting storage + metered bytes instead of rejecting the file).
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes+(1<<20))
+
+	file, _, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no file provided"})
 		return
 	}
 	defer file.Close()
 
-	contentType := header.Header.Get("Content-Type")
+	// Read the full file (bounded by MaxBytesReader above) so the storage gate
+	// and meter see the TRUE byte count, not a truncated prefix.
+	data, err := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read file"})
+		return
+	}
+	if len(data) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "empty file"})
+		return
+	}
+	if len(data) > maxUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
+		return
+	}
+
+	// Determine the content type by SNIFFING the bytes — never trust the
+	// client-supplied multipart Content-Type header (it is attacker-controlled
+	// and was the SVG-XSS vector). http.DetectContentType reads at most 512 bytes.
+	contentType := http.DetectContentType(data)
+	if i := strings.IndexByte(contentType, ';'); i >= 0 {
+		contentType = strings.TrimSpace(contentType[:i])
+	}
 	if !allowedTypes[contentType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported file type"})
 		return
 	}
 
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		ext = mimeToExt(contentType)
-	}
-
+	// Derive the extension from the SNIFFED type, not the client filename, so a
+	// hostile extension can't be smuggled onto disk.
+	ext := mimeToExt(contentType)
 	filename := uuid.New().String() + ext
 	dst := filepath.Join(h.uploadsDir, filename)
 
-	buf := make([]byte, 10<<20) // 10MB max
-	n, _ := file.Read(buf)
-	if n == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "empty file"})
-		return
-	}
+	n := len(data)
 
 	// STORAGE GATE: atomically check AND reserve the account's storage quota
 	// BEFORE writing the file (server-side, on the verified account id, before
@@ -72,7 +101,7 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	if err := os.WriteFile(dst, buf[:n], 0644); err != nil {
+	if err := os.WriteFile(dst, data, 0644); err != nil {
 		res.Release()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
 		return
@@ -94,6 +123,11 @@ func (h *UploadHandler) Serve(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
+	// Defence in depth against stored XSS: force a download (never render
+	// inline same-origin) and stop the browser from MIME-sniffing the bytes
+	// into an active type.
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.File(filepath.Join(h.uploadsDir, filename))
 }
 
@@ -107,8 +141,6 @@ func mimeToExt(mime string) string {
 		return ".gif"
 	case "image/webp":
 		return ".webp"
-	case "image/svg+xml":
-		return ".svg"
 	default:
 		return ".bin"
 	}
