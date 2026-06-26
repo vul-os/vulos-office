@@ -6,11 +6,12 @@ Vulos Office is a collaborative document editing + e-signing service. It exposes
 - File CRUD with version history
 - REST-based persistence and collaboration (comments, suggestions)
 - E-signing workflow (envelope → sign → sealed PDF)
-- Calendar and Contacts (account-scoped, durable SQLite stores)
 
-> **Scope:** Office is documents-only (Docs, Sheets, Slides, PDF/Signing, Calendar,
-> Contacts). Video (Meet) lives in `vulos-meet` and chat/spaces (Talk) lives in
-> `vulos-talk`. Vulos Workspace is the suite shell that combines the products.
+> **Scope:** Office is documents-only (Docs, Sheets, Slides, PDF/Signing). Calendar
+> and Contacts moved to the **Vulos Mail/PIM** product (vulos-mail CalDAV/CardDAV +
+> lilmail `/v1/calendar` + `/v1/contacts`). Video (Meet) lives in `vulos-meet` and
+> chat/spaces (Talk) lives in `vulos-talk`. Vulos Workspace is the suite shell that
+> combines the products.
 
 > **Collaboration transport note:** Real-time co-editing is currently REST + persistence
 > based (edits round-trip through the backend). The client-side CRDT modules in
@@ -29,8 +30,6 @@ Browser clients (React SPA)
 │  /api/files/*   → FileHandler      │
 │  /api/files/:id/versions → ...     │
 │  /api/sign/*    → SigningHandler   │
-│  /api/calendar/*→ CalendarHandler  │
-│  /api/contacts/*→ ContactsHandler  │
 │  /version       → build info       │
 │  /metrics       → obs.Handler()   │
 └──────────────────┬─────────────────┘
@@ -40,9 +39,7 @@ Browser clients (React SPA)
    ▼               ▼               ▼
 backend/        backend/       backend/
 storage/        signing/       fileacl/
-local, PG,      crypto.go      (per-file ACLs)
-calstore,
-contactstore
+local, PG       crypto.go      (per-file ACLs)
 
 Observability:
   backend/obs/ — vulos_office_* metrics + OTel
@@ -59,8 +56,7 @@ Observability:
 - **Auth**: JWT-based; configurable (`cfg.Auth.Enabled`). Per-user credentials stored in
   pure-Go SQLite (`backend/userauth/`).
 - **Storage**: pluggable interface — local JSON (default), PostgreSQL (multi-user), or
-  S3-compatible object store (BYO/Tigris). Calendar and Contacts each have a durable
-  SQLite store (`backend/storage/calstore/`, `backend/storage/contactstore/`).
+  S3-compatible object store (BYO/Tigris).
 - **Org-bucket wiring**: `backend/storage/backendconfig.go` carries `OfficeBackendConfig`
   for per-org S3 bucket + CRDT snapshot configuration, injected by the Vulos control plane.
 - **Per-file ACLs**: `backend/fileacl/` enforces per-file read/write/admin permissions

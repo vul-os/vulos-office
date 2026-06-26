@@ -2,8 +2,7 @@
 
 This document describes the design language for **Vulos Office** and should be
 treated as the source of truth when extending the UI to new surfaces (Sheets,
-Slides, PDF Signing, Calendar, Contacts, Verify, and any sibling apps under the
-Vulos umbrella).
+Slides, PDF Signing, Verify, and any sibling apps under the Vulos umbrella).
 
 The system is **token-first**: every colour, font, spacing, radius, shadow,
 and motion value lives in [`tokens.css`](./tokens.css) as a CSS custom property,

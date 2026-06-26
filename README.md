@@ -6,7 +6,7 @@
 
 **A sovereign, self-hostable office suite — your documents, your server, your rules.**
 
-Docs · Sheets · Slides · PDF Signing · Calendar · Contacts
+Docs · Sheets · Slides · PDF Signing
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
@@ -26,7 +26,7 @@ Docs · Sheets · Slides · PDF Signing · Calendar · Contacts
 
 ## What is this?
 
-Vulos Office is the **documents** product of VulOS, shipped as a **single Go binary** with the entire frontend embedded — no cloud account, no telemetry, no lock-in. It brings document editing, spreadsheets, presentations, a calendar, contacts, and cryptographic document signing together in one clean, modern web interface.
+Vulos Office is the **documents** product of VulOS, shipped as a **single Go binary** with the entire frontend embedded — no cloud account, no telemetry, no lock-in. It brings document editing, spreadsheets, presentations, and cryptographic document signing together in one clean, modern web interface. (Calendar and Contacts now live in the **Vulos Mail/PIM** product — see [Part of VulOS](#part-of-vulos).)
 
 It is **independently self-hostable by default**: with zero configuration it runs as a single-user, local-storage app on your own machine. Everything that *could* tie it to an external service lives behind a small, clean **seam** — so you can run it fully standalone, or opt into the [vulos-cloud](#self-hosting) control plane for multi-tenant identity, entitlements, and usage. The core never imports cloud code; remove the adapter and the standalone build still compiles.
 
@@ -50,7 +50,7 @@ It stands as a tribute to **LibreOffice** and **OpenOffice** — the pioneers wh
 
 Products never import each other — Vulos Workspace *links/embeds* them across clean seams.
 
-**Vulos Office's role:** the documents surface — Docs, Sheets, Slides, and PDF/Signing (plus the Calendar and Contacts apps). It **runs standalone** as a single Go binary **and** is combined under one login by Vulos Workspace. Its sidebar links out to Vulos Talk and Vulos Meet, but never embeds them — chat lives in **vulos-talk** and video in **vulos-meet**.
+**Vulos Office's role:** the documents surface — Docs, Sheets, Slides, and PDF/Signing. It **runs standalone** as a single Go binary **and** is combined under one login by Vulos Workspace. Its sidebar links out to Vulos Talk and Vulos Meet, but never embeds them — chat lives in **vulos-talk** and video in **vulos-meet**. Calendar and Contacts are **not** part of Office; they are the canonical PIM surfaces of **Vulos Mail** (CalDAV/CardDAV + lilmail `/v1/calendar` + `/v1/contacts`).
 
 ---
 
@@ -61,8 +61,6 @@ Products never import each other — Vulos Workspace *links/embeds* them across 
 | **Docs** | Rich-text editing via TipTap — headings, tables, task lists, links, images, comments |
 | **Sheets** | Full spreadsheet grid via Fortune Sheet — formulas, formatting, multi-sheet, charts, pivots |
 | **Slides** | Presentation editor powered by Reveal.js — theme, transition, and present from the browser |
-| **Calendar** | Events, recurrence (iCalendar / rrule), reminders, `.ics` import / export |
-| **Contacts** | Contact management with vCard import / export and duplicate detection |
 | **Signing** | View, annotate, and sign PDFs; multi-party signing envelopes with a cryptographic audit trail |
 | **Import / Export** | `.docx`, `.xlsx`, `.csv`, `.pptx`, `.pdf`, Markdown, and from URL |
 | **Storage** | Local files + SQLite by default; optional PostgreSQL for multi-user |
@@ -78,8 +76,6 @@ import { DocsApp }     from '@vulos/office-client/docs'
 import { SheetsApp }   from '@vulos/office-client/sheets'
 import { SlidesApp }   from '@vulos/office-client/slides'
 import { PDFApp }      from '@vulos/office-client/pdf'
-import { CalendarLib } from '@vulos/office-client/calendar'
-import { ContactsLib } from '@vulos/office-client/contacts'
 ```
 
 ---
@@ -90,10 +86,8 @@ import { ContactsLib } from '@vulos/office-client/contacts'
 | :---: | :---: |
 | **Docs** — rich text, tables, comments | **Sheets** — formulas, charts, pivots |
 | <img src="docs/screenshots/docs-editor.png" alt="Docs" /> | <img src="docs/screenshots/sheets-editor.png" alt="Sheets" /> |
-| **Slides** — themes, transitions, present | **Calendar** — events, recurrence, `.ics` |
-| <img src="docs/screenshots/slides-editor.png" alt="Slides" /> | <img src="docs/screenshots/calendar.png" alt="Calendar" /> |
-| **Contacts** — vCard, duplicate detection | **Signing** — annotate & sign PDFs |
-| <img src="docs/screenshots/contacts.png" alt="Contacts" /> | <img src="docs/screenshots/pdf-editor.png" alt="Signing" /> |
+| **Slides** — themes, transitions, present | **Signing** — annotate & sign PDFs |
+| <img src="docs/screenshots/slides-editor.png" alt="Slides" /> | <img src="docs/screenshots/pdf-editor.png" alt="Signing" /> |
 
 > Regenerate anytime with `npm run screenshots` — it boots the app with seeded demo data (no real backend or credentials needed) and captures every screen. See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
 
@@ -159,8 +153,7 @@ export VULOS_OFFICE_JWT_SECRET="$(openssl rand -hex 32)"
 ```
 ┌────────────────────────────────────────────────────────┐
 │  React + Vite + Tailwind frontend  (JSX only)          │
-│  Docs · Sheets · Slides · PDF Signing ·                │
-│  Calendar · Contacts                                    │
+│  Docs · Sheets · Slides · PDF Signing                  │
 └────────────────────────────────────────────────────────┘
                  │  embedded into the binary
                  ▼
@@ -215,7 +208,7 @@ storage:
 | `VULOS_OFFICE_JWT_SECRET` | HS256 secret for session JWTs — **required when auth is enabled** |
 | `VULOS_OFFICE_DEV` | `1` uses a labelled insecure dev secret — local development only |
 | `VULOS_OFFICE_CORS_ORIGINS` | Comma-separated allowed CORS origins |
-| `VULOS_USERAUTH_DB` / `VULOS_CALSTORE_DB` / `VULOS_CONTACTSTORE_DB` | Override individual SQLite store paths |
+| `VULOS_USERAUTH_DB` | Override the credential SQLite store path |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Enable OpenTelemetry trace export |
 | `VULOS_CP_BASE_URL` | **Opt-in** vulos-cloud control plane URL (enables the cloud seam) |
 | `VULOS_CP_TOKEN` | Outbound service token for the control plane |
@@ -261,7 +254,7 @@ Setting `VULOS_CP_BASE_URL` selects the `backend/integration/cloud` adapter, whi
 npm run dev:web        # Vite (:5173) + Go API (:8080)
 npm test               # frontend tests (Vitest)
 npm run build          # frontend dist/ + Go binary
-npm run build:all      # all sub-targets (office / calendar) + library
+npm run build:all      # all sub-targets (office) + library
 npm run build:lib      # @vulos/office-client library only
 npm run screenshots    # regenerate the docs/screenshots gallery (seeded demo data)
 

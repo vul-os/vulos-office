@@ -27,7 +27,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Home as HomeIcon, FileText, Table2, Presentation, FileSearch, MessageSquare,
   LogOut, ChevronLeft, ChevronRight, Settings as SettingsIcon, Plus,
-  CalendarDays, BookUser, Menu, X,
+  Menu, X,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useFilesStore } from '../store/filesStore'
@@ -38,6 +38,8 @@ import { Sidebar, IconButton, Tooltip, ThemeSwitch } from './ui'
 // to teal only when their app is active — the cloud "restrained accent" trait.
 // seam-C handoff: team chat + huddles is the standalone Vulos Talk product now.
 // The "Talk" rail item launches it (external) instead of routing in-process.
+// Calendar + Contacts moved to the Vulos Mail/PIM product — Office is
+// documents-only, so they no longer appear in the rail.
 const TALK_URL = import.meta.env.VITE_TALK_URL || 'https://talk.vulos.org'
 
 const NAV_APPS = [
@@ -46,8 +48,6 @@ const NAV_APPS = [
   { label: 'Slides',   icon: Presentation,  route: '/slides'   },
   { label: 'PDF',      icon: FileSearch,    route: '/pdf'      },
   { label: 'Talk',     icon: MessageSquare, external: TALK_URL },
-  { label: 'Calendar', icon: CalendarDays,  route: '/calendar', beta: true },
-  { label: 'Contacts', icon: BookUser,      route: '/contacts', beta: true },
 ]
 
 /**

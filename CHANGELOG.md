@@ -6,12 +6,39 @@ Vulos Office uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased] — 2026-06-26
+## [Unreleased] — 2026-06-27
+
+### Changed — Calendar + Contacts moved to Vulos Mail/PIM
+
+Vulos Office is now **documents-only** (Docs, Sheets, Slides, PDF/Signing). Calendar
+and Contacts were redundant with the canonical PIM surfaces now owned by the **Vulos
+Mail** product (vulos-mail CalDAV/CardDAV server + lilmail `/v1/calendar` +
+`/v1/contacts` + `@vulos/mail-ui`), so they have been removed from this repo. This
+mirrors the earlier Meet/Talk extractions.
+
+- **Frontend removed**: the `src/apps/calendar` + `src/apps/contacts` apps, the
+  `calendar.vulos.org` entry/shell/bundle (`src/entries/calendar.jsx`,
+  `src/shells/CalendarShell.jsx`, `vite.config.calendar.js`, `index.calendar.html`,
+  `dist-calendar/`), the `build:calendar` script (dropped from `build:all`), the
+  `./calendar` + `./contacts` library exports (`src/lib/index.js`, `package.json`
+  `exports`/`files`, `vite.config.lib.js`), the contacts client methods in
+  `src/lib/api.js`, and the Calendar/Contacts sidebar rail items.
+- **Backend removed**: the calendar event/reminder/subscription + contacts VCF
+  handlers, the `calstore`/`contactstore` SQLite stores, the `calendar_rrule` +
+  `contacts_vcf` services, and all `/calendar/*` + `/contacts/*` routes and store
+  init (`VULOS_CALSTORE_DB` / `VULOS_CONTACTSTORE_DB`) from `main.go`.
+- **seam-C handoff**: `/calendar` and `/contacts` deep-links now redirect to the
+  Mail product (`VITE_MAIL_URL`, default `https://mail.vulos.org`) instead of
+  routing in-process.
+
+> Follow-up (not in this change): repoint the Vulos OS AppRegistry
+> `vulos-calendar` / `vulos-contacts` tiles and the Workspace registry to the Mail
+> product's Calendar/Contacts surfaces.
 
 ### Changed — Office is now documents-only
 
-Vulos Office is now scoped to **documents only** (Docs, Sheets, Slides, PDF/Signing,
-Calendar, Contacts). Real-time chat + Spaces and video calling/meetings have been
+Vulos Office is now scoped to **documents only** (Docs, Sheets, Slides, PDF/Signing).
+Real-time chat + Spaces and video calling/meetings have been
 split into their own products, combined with Office by the **Vulos Workspace** shell:
 
 - **Vulos Meet → `vulos-meet`**: the standalone video product. Office's meeting/lobby/

@@ -15,14 +15,14 @@ import Settings from './components/Settings'
 import SignView from './apps/pdf/SignView'
 import EnvelopeDashboard from './components/EnvelopeDashboard'
 import Verify from './components/Verify'
-import CalendarApp from './apps/calendar/CalendarApp'
-import ContactsApp from './apps/contacts/ContactsApp'
 
-// Chat + huddles ("Spaces"/Talk) is now the standalone Vulos Talk product.
-// seam-C handoff: chat/meeting deep-links redirect to the Talk app instead of
-// being served in-process. See backend/seam for the integration contract.
+// Chat + huddles ("Spaces"/Talk) is now the standalone Vulos Talk product, and
+// Calendar + Contacts moved to the Vulos Mail/PIM product. seam-C handoff:
+// those deep-links redirect to the owning app instead of being served in-process.
+// See backend/seam for the integration contract.
 const TALK_URL = import.meta.env.VITE_TALK_URL || 'https://talk.vulos.org'
 const MEET_URL = import.meta.env.VITE_MEET_URL || 'https://meet.vulos.org'
+const MAIL_URL = import.meta.env.VITE_MAIL_URL || 'https://mail.vulos.org'
 
 // Public routes that bypass Vulos auth entirely.
 // External signers and external verifiers have no Vulos account.
@@ -68,6 +68,12 @@ export default function App() {
     window.location.href = MEET_URL + location.pathname + location.search
     return null
   }
+  // seam-C handoff: Calendar + Contacts are now the Vulos Mail/PIM product.
+  // Redirect their deep-links (carrying the sub-path) to the Mail surface.
+  if (/^\/(calendar|contacts)(\/|$)/.test(location.pathname)) {
+    window.location.href = MAIL_URL + location.pathname + location.search
+    return null
+  }
 
   // Render public routes immediately — no auth check, no Layout shell.
   if (isPublicRoute(location.pathname)) {
@@ -106,8 +112,6 @@ export default function App() {
         <Route path="/signing-setup" element={<SigningSetup />} />
         <Route path="/envelopes" element={<EnvelopeDashboard />} />
         <Route path="/pdf/:id" element={<PDFEditor />} />
-        <Route path="/calendar" element={<CalendarApp />} />
-        <Route path="/contacts" element={<ContactsApp />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

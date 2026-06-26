@@ -2,26 +2,23 @@
 /**
  * Vulos Office — demo data seeder
  *
- * Writes static JSON files for docs/sheets/slides into a temp data directory,
- * then POSTs seed data to a running backend for Calendar and Contacts
- * via the REST API.
+ * Writes static JSON files for docs/sheets/slides into a temp data directory.
+ * (Calendar + Contacts moved to the Vulos Mail/PIM product, so they are no
+ * longer seeded here — Office is documents-only.)
  *
  * Usage (standalone):
- *   node scripts/seed-demo.mjs [--base-url http://localhost:8080]
+ *   node scripts/seed-demo.mjs
  *
  * The screenshotter calls this automatically — no need to run it manually.
  *
  * Data dir: /tmp/vulos-demo-data  (never touches ./data)
  */
 
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const DEMO_DATA_DIR = '/tmp/vulos-demo-data'
-
-const BASE_URL = process.env.BASE_URL ?? process.argv.find(a => a.startsWith('http')) ?? 'http://localhost:8080'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,24 +28,6 @@ function ensureDir(p) {
 
 function writeJSON(p, obj) {
   writeFileSync(p, JSON.stringify(obj, null, 2), 'utf8')
-}
-
-async function post(baseURL, path, body) {
-  const r = await fetch(`${baseURL}/api${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) {
-    const t = await r.text()
-    throw new Error(`POST ${path} → ${r.status}: ${t}`)
-  }
-  return r.json()
-}
-
-async function tryPost(baseURL, path, body) {
-  try { return await post(baseURL, path, body) }
-  catch (e) { console.warn(`  [warn] seed: ${e.message}`) ; return null }
 }
 
 // ── 1. Static JSON files (docs / sheets / slides) ────────────────────────────
@@ -321,7 +300,7 @@ export function seedStaticFiles() {
           id: 'slide-1',
           master: 'title',
           title: 'Vulos Office',
-          content: '<p><strong>Open-source productivity suite</strong><br>Documents · Sheets · Slides · Calendar</p>',
+          content: '<p><strong>Open-source productivity suite</strong><br>Documents · Sheets · Slides · PDF</p>',
           notes: 'Welcome! This deck gives a 5-minute overview of what Vulos Office is and why we built it.',
           bg: '',
         },
@@ -329,7 +308,7 @@ export function seedStaticFiles() {
           id: 'slide-2',
           master: 'content',
           title: 'The Problem',
-          content: '<ul><li>Google Workspace and Microsoft 365 lock your data in the cloud</li><li>Most open-source suites are desktop-only or feel dated</li><li>No single tool combines docs, sheets, slides, and calendar without a vendor account</li></ul>',
+          content: '<ul><li>Google Workspace and Microsoft 365 lock your data in the cloud</li><li>Most open-source suites are desktop-only or feel dated</li><li>No single tool combines docs, sheets, slides, and PDF without a vendor account</li></ul>',
           notes: 'Emphasise that this is about sovereignty — knowing where your data lives.',
           bg: '',
         },
@@ -345,7 +324,7 @@ export function seedStaticFiles() {
           id: 'slide-4',
           master: 'content',
           title: 'What\'s Inside',
-          content: '<table><tr><th>Surface</th><th>Engine</th></tr><tr><td>Documents</td><td>TipTap (ProseMirror)</td></tr><tr><td>Sheets</td><td>Fortune Sheet</td></tr><tr><td>Slides</td><td>Reveal.js</td></tr><tr><td>Calendar</td><td>FullCalendar + rrule</td></tr></table>',
+          content: '<table><tr><th>Surface</th><th>Engine</th></tr><tr><td>Documents</td><td>TipTap (ProseMirror)</td></tr><tr><td>Sheets</td><td>Fortune Sheet</td></tr><tr><td>Slides</td><td>Reveal.js</td></tr><tr><td>PDF</td><td>pdf.js + pdf-lib</td></tr></table>',
           notes: 'Each surface is also available as an importable npm component via @vulos/office-client.',
           bg: '',
         },
@@ -366,111 +345,12 @@ export function seedStaticFiles() {
   console.log(`  wrote static seed files → ${DEMO_DATA_DIR}`)
 }
 
-// ── 2. Seed via REST API (Calendar, Contacts) ─────────────────────────────────
-// Only called once the backend is running on BASE_URL.
-
-export async function seedViaAPI(baseURL = BASE_URL) {
-  console.log(`\n  seeding via API → ${baseURL}`)
-  // Bind baseURL into a local shorthand
-  const tp = (path, body) => tryPost(baseURL, path, body)
-
-  // ── Calendar events ───────────────────────────────────────────────────────
-  const weekStart = new Date()
-  weekStart.setHours(0, 0, 0, 0)
-  // Move to Monday of current week
-  const day = weekStart.getDay()
-  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1))
-
-  function dayAt(daysOffset, h, m = 0) {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + daysOffset)
-    d.setHours(h, m, 0, 0)
-    return d.toISOString()
-  }
-
-  const calEvents = [
-    {
-      title: 'Team Standup',
-      calendar_id: 'personal',
-      start: dayAt(0, 9, 0),
-      end: dayAt(0, 9, 30),
-      recurrence: 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
-      color: '#6366f1',
-      description: 'Daily 30-minute sync. Agenda: progress, blockers, announcements.',
-    },
-    {
-      title: 'Architecture Review — CRDT Sync Layer',
-      calendar_id: 'work',
-      start: dayAt(3, 14, 0),
-      end: dayAt(3, 15, 30),
-      location: 'Engineering Room',
-      color: '#f59e0b',
-      description: 'Review ADR-014 and decide on Yjs vs Automerge for the offline sync layer.',
-    },
-    {
-      title: 'Q2 All-Hands',
-      calendar_id: 'work',
-      start: dayAt(4, 15, 0),
-      end: dayAt(4, 16, 30),
-      location: 'Main conference room',
-      color: '#10b981',
-      description: 'Full team review of Q2 results, roadmap for Q3, open Q&A.',
-    },
-    {
-      title: 'Design Sync',
-      calendar_id: 'work',
-      start: dayAt(1, 11, 0),
-      end: dayAt(1, 11, 45),
-      color: '#8b5cf6',
-      description: 'Sidebar redesign, dark-mode palette review, mobile responsive pass.',
-    },
-    {
-      title: 'Sprint Planning',
-      calendar_id: 'work',
-      start: dayAt(0, 10, 0),
-      end: dayAt(0, 11, 30),
-      color: '#ec4899',
-      description: 'Kick off the Q3-W1 sprint. Estimate stories, assign owners.',
-    },
-    {
-      title: '1:1 — Engineering Lead',
-      calendar_id: 'personal',
-      start: dayAt(2, 13, 0),
-      end: dayAt(2, 13, 30),
-      color: '#06b6d4',
-      description: 'Fortnightly 1:1. Topics: career growth, project blockers, team morale.',
-    },
-  ]
-
-  for (const ev of calEvents) {
-    await tp('/calendar/events', ev)
-  }
-
-  // ── Contacts ──────────────────────────────────────────────────────────────
-  const contacts = [
-    { full_name: 'Amara Diallo', emails: [{ address: 'amara@vulos.org', label: 'work' }], phones: [{ number: '+27 11 555 0100', label: 'work' }], notes: 'Engineering lead. Timezone: Africa/Johannesburg' },
-    { full_name: 'Sipho Ndlovu', emails: [{ address: 'sipho@vulos.org', label: 'work' }], phones: [{ number: '+27 21 555 0201', label: 'mobile' }], notes: 'Product manager. Focuses on calendar and contacts surfaces.' },
-    { full_name: 'Kefilwe Mthembu', emails: [{ address: 'kefilwe@vulos.org', label: 'work' }], phones: [{ number: '+27 31 555 0342', label: 'work' }], notes: 'Design lead. Figma access required.' },
-    { full_name: 'Yaw Asante', emails: [{ address: 'yaw@example.org', label: 'work' }], phones: [{ number: '+233 30 255 0412', label: 'mobile' }], notes: 'External partner — Accra office.' },
-    { full_name: 'Zanele Khumalo', emails: [{ address: 'zanele@vulos.org', label: 'work' }, { address: 'zanele@personal.co.za', label: 'personal' }], phones: [{ number: '+27 11 555 0567', label: 'mobile' }], notes: 'Backend engineer. On call this week.' },
-    { full_name: 'Tendai Moyo', emails: [{ address: 'tendai@vulos.org', label: 'work' }], notes: 'DevOps. Manages fly.io + Tigris deployments.' },
-  ]
-
-  for (const c of contacts) {
-    await tp('/contacts', c)
-  }
-
-  console.log('  API seed complete')
-}
-
 // ── Main (standalone) ─────────────────────────────────────────────────────────
 async function main() {
   console.log('\nVulos Office — demo seeder')
   console.log(`  data dir : ${DEMO_DATA_DIR}`)
-  console.log(`  api base : ${BASE_URL}`)
 
   seedStaticFiles()
-  await seedViaAPI(BASE_URL)
 
   console.log('\nSeed done.\n')
 }

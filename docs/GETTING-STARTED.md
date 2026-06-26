@@ -121,8 +121,10 @@ For the full environment variable and observability reference see [CONFIGURATION
 
 1. Open the app. Without auth the home screen loads immediately.
 2. Click **New** to create a document, sheet, or presentation.
-3. Open **Calendar** for events and scheduling.
-4. Open **Contacts** for your address book.
+3. Open a PDF to view, annotate, or set up signing.
+
+> Calendar and Contacts are no longer part of Office — they live in the Vulos
+> Mail/PIM product (vulos-mail). The Office sidebar deep-links to that surface.
 
 ---
 

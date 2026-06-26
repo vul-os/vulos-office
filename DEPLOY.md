@@ -1,12 +1,13 @@
 # Vulos Office — Static Deploy Guide
 
-Vulos Office bundles two separate SPAs (office, calendar), each
-built with Vite and uploaded to Tigris object storage for CDN delivery.
+Vulos Office ships the `office` SPA, built with Vite and uploaded to Tigris
+object storage for CDN delivery.
 
-> Vulos Office is the **documents-only** product (Docs, Sheets, Slides, PDF/Signing,
-> Calendar, Contacts). Chat/Spaces ships as the separate **vulos-talk** product
-> (`talk.vulos.org`) and video ships as **vulos-meet** (`meet.vulos.org`); both are
-> deployed from their own repos and combined by the Vulos Workspace shell.
+> Vulos Office is the **documents-only** product (Docs, Sheets, Slides, PDF/Signing).
+> Calendar and Contacts ship as part of the separate **vulos-mail** product;
+> chat/Spaces ships as **vulos-talk** (`talk.vulos.org`) and video as **vulos-meet**
+> (`meet.vulos.org`); each is deployed from its own repo and combined by the Vulos
+> Workspace shell.
 
 ## Prerequisites
 
@@ -32,7 +33,6 @@ Deploy all targets:
 Deploy a single target:
 ```sh
 ./scripts/deploy-static.sh office
-./scripts/deploy-static.sh calendar
 ```
 
 Deploy and write a `latest` pointer so CDN routing resolves the current SHA:
@@ -48,7 +48,6 @@ Each deploy uploads to `<target>/<sha>/` in the bucket, served via Tigris static
 | Target | CDN domain | Bucket path |
 |---|---|---|
 | office | office.vulos.org | `office/<sha>/` |
-| calendar | calendar.vulos.org | `calendar/<sha>/` |
 
 Static files are served from `cdn.vulos.org` (Tigris, configured in your
 `fly.toml` or DNS CNAME). See [vulos-naming-and-urls](../vulos/docs/) for the

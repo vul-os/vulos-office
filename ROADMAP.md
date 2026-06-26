@@ -1,8 +1,9 @@
 # Vulos Office — Roadmap
 
 Vulos Office is the **documents** surface of the Vulos project — a self-hosted,
-open-source (MIT) suite for Documents, Sheets, Slides, PDF/Signing, Calendar, and
-Contacts that runs as a single Go binary with a React frontend. Today it is a
+open-source (MIT) suite for Documents, Sheets, Slides, and PDF/Signing that runs
+as a single Go binary with a React frontend. (Calendar and Contacts now live in
+the Vulos Mail/PIM product.) Today it is a
 fast, private, local-first editor. This roadmap charts its growth into a
 **networked** office: the same documents, edited together in real time by people
 on different Vulos instances, and PDFs signed with cryptographic audit trails —
@@ -254,8 +255,8 @@ Office (documents), Talk, and Meet — is included in the tier price with no sep
 
 This is a deliberate product decision: Google Workspace refugees should not have to choose
 between mail and office — they are bundled together from the first paid tier above Vulos Mail.
-The messaging on the pricing page reflects this: "Office, Talk, Meet, and Calendar are included
-from Starter and up."
+The messaging on the pricing page reflects this: "Office, Talk, Meet, and Mail (with Calendar +
+Contacts) are included from Starter and up."
 
 Cross-repo: see `vulos-cloud/ROADMAP.md` billing model section and `src/pages/Pricing.jsx` for
 the pricing copy that reflects this bundling.
@@ -276,9 +277,9 @@ Cross-repo: see `vulos-cloud/ROADMAP.md §BYO Mail support`.
 ## Future work
 
 ### Multi-target builds: web subdomain + OS-embed library for all apps
-Build each Office app surface (docs, sheets, slides, pdf, calendar, contacts) as two targets:
-(1) a standalone web build served from a subdomain (`office.vulos.org`,
-`calendar.vulos.org`), and (2) an embeddable library (`lib.jsx` export) consumed by the
+Build each Office app surface (docs, sheets, slides, pdf) as two targets:
+(1) a standalone web build served from a subdomain (`office.vulos.org`), and
+(2) an embeddable library (`lib.jsx` export) consumed by the
 Vulos OS shell as a native app wrapper. Vite multi-entry config wires both outputs from the
 same source tree. The subdomain builds integrate with the `vulos-cloud` multi-target routing
 pipeline. Do not touch `src/apps/*/lib.jsx`, `vite.config.*`, or `package.json` — those are
@@ -297,7 +298,8 @@ navigated. Coordinate with the multi-target build work above for OS launcher int
 
 - **Docs / Sheets / Slides / PDF** editing and signing are the core product, with
   comments, suggestions (track-changes), and version history.
-- **Calendar** and **Contacts** are durable, account-scoped, SQLite-backed.
+- **Calendar** and **Contacts** moved to the Vulos Mail/PIM product (vulos-mail
+  CalDAV/CardDAV + lilmail `/v1/calendar` + `/v1/contacts`); Office is documents-only.
 - **Org-bucket wiring** (`OfficeBackendConfig`) is fully wired (`FIX-OFFICE-STORE-WIRE-01`):
   file CRUD and sealed PDFs read/write to the S3-compatible bucket (Tigris or MinIO)
   when `VULOS_ORG_ID` is set; falls back to local storage otherwise.
@@ -305,7 +307,7 @@ navigated. Coordinate with the multi-target build work above for OS launcher int
   builds a slides-editor-compatible content model for both drag-and-drop and backend-served files.
 - **Deep-link routing**: per-document deep links + the `web+vulosoffice://` protocol
   handler registered on mount; `?goto=` param parsed and navigated.
-- **Security**: .ics SSRF guard, per-file ACLs, append-only signing audit trail.
+- **Security**: per-file ACLs, append-only signing audit trail.
 - **CRDT**: client-side CRDT modules (`src/lib/crdt/`) are live. Live P2P document sync
   over the peer fabric is **dormant** — the Go CRDT engine was removed; the live path is
   REST + persistence.

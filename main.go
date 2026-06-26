@@ -71,27 +71,9 @@ func main() {
 		log.Fatal("Storage init failed:", err)
 	}
 
-	// ── Durable account-scoped stores ─────────────────────────────────────────
-	// Each store defaults to an in-memory SQLite DB. We upgrade to file-backed
-	// SQLite here so data survives restarts. The env vars below can point to
-	// separate files or to a shared directory.
-	calDSN := os.Getenv("VULOS_CALSTORE_DB")
-	if calDSN == "" {
-		calDSN = cfg.Server.DataDir + "/cal.db"
-	}
-	if err := handlers.InitCalStore(calDSN); err != nil {
-		log.Fatalf("Calendar store init failed (%s): %v", calDSN, err)
-	}
-	log.Printf("Calendar store → %s", calDSN)
-
-	contactDSN := os.Getenv("VULOS_CONTACTSTORE_DB")
-	if contactDSN == "" {
-		contactDSN = cfg.Server.DataDir + "/contacts.db"
-	}
-	if err := handlers.InitContactStore(contactDSN); err != nil {
-		log.Fatalf("Contact store init failed (%s): %v", contactDSN, err)
-	}
-	log.Printf("Contact store → %s", contactDSN)
+	// Calendar + Contacts moved to the standalone Vulos Mail/PIM product
+	// (vulos-mail CalDAV/CardDAV + lilmail /v1/calendar + /v1/contacts). Office
+	// is documents-only; their durable stores no longer live here.
 
 	// ── Org-bucket object store ───────────────────────────────────────────────
 	// ResolveOrgBucket reads VULOS_ORG_ID (cloud-injected org identifier) and
@@ -277,19 +259,9 @@ func main() {
 	protected.POST("/sheets/:id/import", sheetsHandler.Import)
 	protected.GET("/sheets/:id/export", sheetsHandler.Export)
 
-	// Calendar: events, RSVP, ICS export, RRULE helper, subscriptions.
-	calHandler := handlers.NewCalendarEventHandler()
-	protected.GET("/calendar/events", calHandler.ListEvents)
-	protected.POST("/calendar/events", calHandler.CreateEvent)
-	protected.PUT("/calendar/events/:id", calHandler.UpdateEvent)
-	protected.DELETE("/calendar/events/:id", calHandler.DeleteEvent)
-	protected.POST("/calendar/events/:id/rsvp", calHandler.RSVPEvent)
-	protected.GET("/calendar/export/:calID", calHandler.ExportICS)
-	protected.POST("/calendar/rrule/expand", calHandler.ExpandRRule)
-
-	calSubHandler := handlers.NewCalendarSubscribeHandler()
-	protected.POST("/calendar/subscribe", calSubHandler.Subscribe)
-	protected.GET("/calendar/subscriptions", calSubHandler.List)
+	// Calendar + Contacts APIs moved to the standalone Vulos Mail/PIM product
+	// (vulos-mail CalDAV/CardDAV + lilmail /v1/calendar + /v1/contacts). Office
+	// no longer serves /calendar/* or /contacts/* — it is documents-only.
 
 	// Admin: invite-token issuance (mint/list/revoke) + audit-log viewer.
 	// Every handler additionally enforces the admin scope (requireAdmin).
@@ -298,22 +270,6 @@ func main() {
 	protected.GET("/admin/invites", adminHandler.ListInvites)
 	protected.DELETE("/admin/invites/:id", adminHandler.RevokeInvite)
 	protected.GET("/admin/audit", adminHandler.ListAudit)
-
-	// Contacts: VCF import/export, dedup, merge, and individual CRUD.
-	contactsHandler := handlers.NewContactsVCFHandler()
-	protected.GET("/contacts", contactsHandler.ListContacts)
-	protected.POST("/contacts", contactsHandler.CreateContact)
-	protected.GET("/contacts/:uid", contactsHandler.GetContact)
-	protected.PUT("/contacts/:uid", contactsHandler.UpdateContact)
-	protected.DELETE("/contacts/:uid", contactsHandler.DeleteContact)
-	protected.POST("/contacts/import", contactsHandler.ImportVCF)
-	protected.GET("/contacts/export", contactsHandler.ExportVCF)
-	protected.GET("/contacts/duplicates", contactsHandler.FindDuplicates)
-	protected.POST("/contacts/merge", contactsHandler.MergeContacts)
-
-	// Start background workers.
-	handlers.StartReminderWorker(nil)
-	handlers.StartSubscriptionRefresher()
 
 	// NOTE: Vulos Spaces (presence + channels/DMs/threads/messages) moved to the
 	// standalone Vulos Talk product (vulos-talk). The /spaces/* and /meet/* APIs

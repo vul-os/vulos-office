@@ -3,9 +3,9 @@
 STRIDE pass. Last updated: 2026-06-26.
 
 > **Scope:** Vulos Office is the **documents-only** product (Docs, Sheets, Slides,
-> PDF/Signing, Calendar, Contacts). Real-time chat/Spaces moved to the separate
-> **vulos-talk** product and video to **vulos-meet** — their WebRTC/signaling threat
-> surface is modelled in those repos, not here.
+> PDF/Signing). Calendar/Contacts moved to **vulos-mail**, real-time chat/Spaces to
+> **vulos-talk**, and video to **vulos-meet** — their threat surfaces (CalDAV/CardDAV,
+> WebRTC/signaling) are modelled in those repos, not here.
 
 ---
 

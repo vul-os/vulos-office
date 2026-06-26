@@ -2,7 +2,7 @@
 # deploy-static.sh — build and upload Vulos Office static bundles to Tigris CDN.
 #
 # Usage:
-#   ./scripts/deploy-static.sh [office|calendar|all] [--latest]
+#   ./scripts/deploy-static.sh [office|all] [--latest]
 #
 # Required env vars:
 #   TIGRIS_ACCESS_KEY_ID      — Tigris access key
@@ -29,7 +29,7 @@ GIT_SHA="$(git rev-parse --short HEAD)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-ALL_TARGETS=(office calendar)
+ALL_TARGETS=(office)
 
 if [[ "$TARGET" == "all" ]]; then
   TARGETS=("${ALL_TARGETS[@]}")

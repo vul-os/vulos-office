@@ -8,9 +8,8 @@
  *   1. Writes static seed files to /tmp/vulos-demo-data
  *   2. Builds the Go binary (which embeds the compiled frontend via //go:embed)
  *   3. Starts it on port 8083 pointed at the demo data dir
- *   4. Calls the seed REST API for Calendar / Contacts
- *   5. Captures all screenshots
- *   6. Stops the server
+ *   4. Captures all screenshots
+ *   5. Stops the server
  *
  * Usage:
  *   npm run screenshots
@@ -28,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { spawn, execSync } from 'node:child_process'
 
-import { seedStaticFiles, seedViaAPI, DEMO_DATA_DIR } from './seed-demo.mjs'
+import { seedStaticFiles, DEMO_DATA_DIR } from './seed-demo.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT       = path.resolve(__dirname, '..')
@@ -71,18 +70,6 @@ const ROUTES = [
     path: '/pdf/demo',
     description: 'PDF viewer / annotator',
     waitFor: '[data-testid="pdf-editor"], .pdf-viewer, canvas',
-  },
-  {
-    name: 'calendar',
-    path: '/calendar',
-    description: 'Calendar — weekly view with events',
-    waitFor: '[data-testid="calendar-app"], .calendar-grid, [class*="calendar"], .fc',
-  },
-  {
-    name: 'contacts',
-    path: '/contacts',
-    description: 'Contacts — populated list',
-    waitFor: '[data-testid="contacts-app"], [class*="contacts"]',
   },
 ]
 
@@ -141,11 +128,7 @@ async function startLocalServer() {
   // 5. Start the Go server (it serves both API + embedded frontend)
   serverProc = spawn(binPath, [], {
     cwd: tmpWD,
-    env: {
-      ...process.env,
-      VULOS_CALSTORE_DB:     `${DEMO_DATA_DIR}/cal.db`,
-      VULOS_CONTACTSTORE_DB: `${DEMO_DATA_DIR}/contacts.db`,
-    },
+    env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   serverProc.stdout.on('data', d => process.stdout.write(`  [go] ${d}`))
@@ -156,10 +139,7 @@ async function startLocalServer() {
   await waitForHTTP(`${LOCAL_BASE}/version`)
   console.log(`  server ready at ${LOCAL_BASE}`)
 
-  // 7. Seed Calendar / Contacts via API
-  await seedViaAPI(LOCAL_BASE)
-
-  // Brief pause for SQLite writes to flush
+  // Brief pause for static-file writes to settle
   await sleep(1_000)
 }
 
@@ -307,8 +287,6 @@ async function main() {
     '- **Docs** `demo`: "Q2 2026 Product Update" — prose, table, bullet lists',
     '- **Sheets** `demo-sheet`: "Revenue Tracker H1 2026" — 6 months, SUM + margin formulas, 2 sheets',
     '- **Slides** `demo-slides`: "Vulos Office Product Overview" — 5 slides, Reveal.js obsidian theme',
-    '- **Calendar**: 6 events this week (standup, all-hands, design sync, sprint planning, 1:1, arch review)',
-    '- **Contacts**: 6 contacts with emails, phones, and notes',
   ].join('\n')
 
   writeFileSync(path.join(OUT, 'README.md'), notes + '\n')

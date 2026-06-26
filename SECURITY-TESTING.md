@@ -43,7 +43,6 @@ npm test
 | `backend/handlers/pentest_files_test.go` | File handlers | 2 (identity spoof), 3 (file IDOR), 6 (CSRF/ambient authority) |
 | `backend/handlers/pentest_authorid_test.go` | Comment/author binding | 2 (author-id forgery) |
 | `backend/handlers/pentest_envelopes_test.go` | Signing envelopes | 3 (envelope/signer authz) |
-| `backend/handlers/pentest_calendar_contacts_test.go` | Calendar / Contacts | 3 (scope), .ics SSRF |
 | `backend/handlers/pentest_localfiles_test.go` | Local-file serve | 3 (path traversal) |
 | `backend/handlers/pentest_creds_test.go` | Auth/creds | 5 (per-user credentials) |
 | `backend/handlers/pentest_helpers_test.go` / `pentest_storage_test.go` | test harness | (support) |
@@ -76,7 +75,7 @@ These build on (and do not replace) the pre-existing focused tests:
 - A forged author id on a comment/reply is rejected — authorship is bound to the
   verified identity, not the request body.
 
-### 3. File IDOR / ACL (`pentest_files_test.go`, `pentest_envelopes_test.go`, `pentest_calendar_contacts_test.go`, `pentest_localfiles_test.go`)
+### 3. File IDOR / ACL (`pentest_files_test.go`, `pentest_envelopes_test.go`, `pentest_localfiles_test.go`)
 The per-file ACL (`backend/fileacl`) is enforced by **every** file-scoped
 handler, all sharing the process-wide `SharedFileAuthz`. The pentests prove a
 non-owner cannot pivot from a denied `GET /files/:id` to an open sibling endpoint:
@@ -88,9 +87,7 @@ non-owner cannot pivot from a denied `GET /files/:id` to an open sibling endpoin
 - A non-owner **cannot self-share** the victim's file to gain access.
 - Admins bypass the ACL (by design).
 - Signing-envelope and signer endpoints are scoped to the document owner / the
-  scoped signer token; calendar and contacts surfaces are account-scoped; the
-  local-file serve path rejects `..` traversal and the `.ics` import path blocks
-  SSRF to internal addresses.
+  scoped signer token; the local-file serve path rejects `..` traversal.
 
 ### 4. XSS (`src/apps/slides/sanitize.test.js`)
 Exercises the document/slide HTML render pipeline (DOMPurify `sanitize()` →

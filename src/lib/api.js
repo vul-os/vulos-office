@@ -174,14 +174,4 @@ export const api = {
     if (!res.ok) throw new Error('Upload failed')
     return res.json()
   },
-
-  // Contacts individual CRUD
-  listContacts: () => request('/contacts'),
-  getContact: (uid) => request(`/contacts/${uid}`),
-  createContact: (contact) =>
-    request('/contacts', { method: 'POST', body: JSON.stringify(contact) }),
-  updateContact: (uid, contact) =>
-    request(`/contacts/${uid}`, { method: 'PUT', body: JSON.stringify(contact) }),
-  deleteContact: (uid) =>
-    request(`/contacts/${uid}`, { method: 'DELETE' }),
 }

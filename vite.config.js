@@ -13,8 +13,9 @@ const keepGitkeep = {
 }
 
 // Default config: monolithic vulos-office build (dist/).
-// For subdomain builds use vite.config.{office,calendar}.js.
-// (Talk/Spaces is now the standalone vulos-talk product.)
+// For the subdomain build use vite.config.office.js.
+// (Talk/Spaces is now the standalone vulos-talk product; Calendar/Contacts
+// moved to the Vulos Mail/PIM product.)
 // For library build use vite.config.lib.js.
 export default defineConfig({
   test: {

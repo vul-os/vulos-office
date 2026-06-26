@@ -11,8 +11,6 @@ Populated with realistic demo data from `scripts/seed-demo.mjs`.
 | sheets-editor.png | Spreadsheets editor — Revenue Tracker | populated |
 | slides-editor.png | Presentations editor — Product Overview | populated |
 | pdf-editor.png | PDF viewer / annotator | populated |
-| calendar.png | Calendar — weekly view with events | populated |
-| contacts.png | Contacts — populated list | populated |
 
 To regenerate: `npm run screenshots`
 Against a live instance: `BASE_URL=https://... npm run screenshots`
@@ -22,5 +20,3 @@ Against a live instance: `BASE_URL=https://... npm run screenshots`
 - **Docs** `demo`: "Q2 2026 Product Update" — prose, table, bullet lists
 - **Sheets** `demo-sheet`: "Revenue Tracker H1 2026" — 6 months, SUM + margin formulas, 2 sheets
 - **Slides** `demo-slides`: "Vulos Office Product Overview" — 5 slides, Reveal.js obsidian theme
-- **Calendar**: 6 events this week (standup, all-hands, design sync, sprint planning, 1:1, arch review)
-- **Contacts**: 6 contacts with emails, phones, and notes
