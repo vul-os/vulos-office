@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import LoginScreen from './components/LoginScreen'
 import Layout from './components/Layout'
@@ -22,36 +22,8 @@ import CalendarApp from './apps/calendar/CalendarApp'
 import ContactsApp from './apps/contacts/ContactsApp'
 
 // Public routes that bypass Vulos auth entirely.
-// External signers, external meeting invitees, and external verifiers have no Vulos account.
-const PUBLIC_PREFIXES = ['/sign/', '/room/', '/verify', '/meet/']
-
-// ── MeetJoin — resolve a meeting ID to a session room ────────────────────────
-function MeetJoin() {
-  const { meetId } = useParams()
-  const navigate = useNavigate()
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    fetch(`/api/meetings/${meetId}/join`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : r.json().then(b => Promise.reject(new Error(b.error || `HTTP ${r.status}`))))
-      .then(data => navigate(`/room/${encodeURIComponent(data.session_id)}`, { replace: true }))
-      .catch(e => setError(e.message))
-  }, [meetId]) // eslint-disable-line
-
-  if (error) return (
-    <div className="h-screen flex items-center justify-center bg-bg">
-      <div className="text-center">
-        <p className="text-danger mb-3 text-sm">{error}</p>
-        <button onClick={() => navigate('/meetings')} className="px-4 h-8 rounded-md bg-accent text-white text-sm">Back to meetings</button>
-      </div>
-    </div>
-  )
-  return (
-    <div className="h-screen flex items-center justify-center bg-bg">
-      <LoadingState label="Joining meeting…" />
-    </div>
-  )
-}
+// External signers and external verifiers have no Vulos account.
+const PUBLIC_PREFIXES = ['/sign/', '/room/', '/verify']
 
 function isPublicRoute(pathname) {
   return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))
@@ -89,7 +61,6 @@ export default function App() {
         <Route path="/sign/:token" element={<SignView />} />
         <Route path="/room/:sessionId" element={<Room />} />
         <Route path="/verify" element={<Verify />} />
-        <Route path="/meet/:meetId" element={<MeetJoin />} />
       </Routes>
     )
   }
@@ -124,7 +95,6 @@ export default function App() {
         <Route path="/spaces/:channelId" element={<SpacesApp />} />
         <Route path="/meetings" element={<Meetings />} />
         <Route path="/room/:sessionId" element={<Room />} />
-        <Route path="/meet/:meetId" element={<MeetJoin />} />
         <Route path="/pdf/:id" element={<PDFEditor />} />
         <Route path="/calendar" element={<CalendarApp />} />
         <Route path="/contacts" element={<ContactsApp />} />

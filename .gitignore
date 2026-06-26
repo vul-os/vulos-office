@@ -20,7 +20,6 @@ dist-lib/
 dist-office/
 dist-talk/
 dist-calendar/
-dist-meet/
 *.local
 
 # Editor directories and files
