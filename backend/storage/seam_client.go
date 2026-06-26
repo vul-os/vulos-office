@@ -16,8 +16,10 @@ package storage
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 )
@@ -25,6 +27,13 @@ import (
 // SeamObjectNamespace is the key sub-space office claims inside the injected
 // per-user prefix. All office blobs land under "<prefix>/office/...".
 const SeamObjectNamespace = "office"
+
+// SeamBrokerSecretEnv gates the whole injected-seam path. The OS gateway is
+// configured with the same secret and presents it on every proxied request as
+// the X-Vulos-Storage-Broker-Auth header. When this env var is empty the seam
+// headers are NEVER trusted (standalone behaviour), mirroring lilmail's
+// LILMAIL_BROKER_SECRET mail-broker gate.
+const SeamBrokerSecretEnv = "VULOS_STORAGE_BROKER_SECRET"
 
 // SeamStorageConfig is the per-request storage seam, populated from the
 // X-Vulos-Storage-* request headers injected by the OS gateway. An empty
@@ -38,11 +47,40 @@ type SeamStorageConfig struct {
 	AccessKey    string // X-Vulos-Storage-Access-Key
 	SecretKey    string // X-Vulos-Storage-Secret-Key
 	SessionToken string // X-Vulos-Storage-Session-Token (optional, STS temp creds)
+	BrokerAuth   string // X-Vulos-Storage-Broker-Auth (shared secret proving the
+	// request came from the trusted OS gateway; gates the whole seam path)
 }
 
 // Present reports whether the seam was injected on this request.
 func (c SeamStorageConfig) Present() bool {
 	return strings.TrimSpace(c.Endpoint) != ""
+}
+
+// Trusted reports whether the injected seam headers may be honored. On their own
+// the X-Vulos-Storage-* headers are spoofable by any client that can reach
+// Office, so they are trusted ONLY when:
+//
+//  1. the env SeamBrokerSecretEnv is configured (we are deployed behind the OS
+//     gateway), AND
+//  2. the request's X-Vulos-Storage-Broker-Auth header matches that secret via a
+//     constant-time compare.
+//
+// When either condition fails, callers MUST ignore every seam header and fall
+// back to the standalone OrgBucketClient()/no-op path. This mirrors lilmail's
+// mail-broker secret gate (handlers/jsonapi/broker.go).
+func (c SeamStorageConfig) Trusted() bool {
+	if !c.Present() {
+		return false
+	}
+	secret := strings.TrimSpace(os.Getenv(SeamBrokerSecretEnv))
+	if secret == "" {
+		return false // gate disabled — never trust injected headers
+	}
+	presented := strings.TrimSpace(c.BrokerAuth)
+	if presented == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(secret)) == 1
 }
 
 // officePrefix returns the key prefix under which office namespaces its blobs:
@@ -89,6 +127,13 @@ func SeamS3Client(cfg SeamStorageConfig) (*OfficeS3Client, error) {
 		return nil, nil
 	}
 
+	// Endpoint safety (M1): reject arbitrary external http:// endpoints even
+	// though we deliberately bypass the BYO-MinIO https-only Validate() for
+	// gateway-supplied URLs. https is always fine; http only for on-box hosts.
+	if err := ValidateSeamEndpoint(cfg.Endpoint); err != nil {
+		return nil, err
+	}
+
 	fp := cfg.fingerprint()
 	seamClientCacheMu.Lock()
 	defer seamClientCacheMu.Unlock()
@@ -102,8 +147,9 @@ func SeamS3Client(cfg SeamStorageConfig) (*OfficeS3Client, error) {
 	}
 
 	// Build the struct directly (not via NewOfficeS3Client): the gateway may
-	// inject http(s) MinIO-style endpoints, and we must not impose the BYO-MinIO
-	// "https only" validation on gateway-supplied URLs.
+	// inject an on-box http MinIO endpoint, so we can't impose the BYO-MinIO
+	// "https only" Validate(); instead the endpoint passed ValidateSeamEndpoint
+	// above (https, or http only for loopback/private hosts).
 	client := &OfficeS3Client{
 		endpoint:        strings.TrimSuffix(strings.TrimSpace(cfg.Endpoint), "/"),
 		region:          region,

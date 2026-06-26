@@ -145,6 +145,71 @@ func TestSeamS3Client_CachedByFingerprint(t *testing.T) {
 	}
 }
 
+func TestSeamS3Client_RejectsExternalHTTPEndpoint(t *testing.T) {
+	_, err := SeamS3Client(SeamStorageConfig{
+		Endpoint:  "http://evil.example.com",
+		Bucket:    "b",
+		AccessKey: "AK",
+		SecretKey: "SK",
+	})
+	if err == nil {
+		t.Fatal("expected error for external http:// endpoint, got nil")
+	}
+}
+
+func TestValidateSeamEndpoint(t *testing.T) {
+	allowed := []string{
+		"https://fly.storage.tigris.dev",
+		"https://evil.example.com", // https is always fine
+		"http://localhost:9000",
+		"http://127.0.0.1:9000",
+		"http://10.1.2.3:9000",    // private
+		"http://192.168.1.5:9000", // private
+		"http://minio:9000",       // single-label on-box service name
+	}
+	for _, e := range allowed {
+		if err := ValidateSeamEndpoint(e); err != nil {
+			t.Errorf("ValidateSeamEndpoint(%q) = %v, want allowed", e, err)
+		}
+	}
+	rejected := []string{
+		"http://evil.example.com",
+		"http://203.0.113.7:9000", // public IP
+		"ftp://localhost",
+		"http://minio.evil.example.com",
+	}
+	for _, e := range rejected {
+		if err := ValidateSeamEndpoint(e); err == nil {
+			t.Errorf("ValidateSeamEndpoint(%q) = nil, want rejected", e)
+		}
+	}
+}
+
+func TestSeamStorageConfig_Trusted(t *testing.T) {
+	const secret = "broker-secret-123"
+	base := SeamStorageConfig{Endpoint: "https://x", BrokerAuth: secret}
+
+	// Gate disabled: env unset ⇒ never trusted, even with a broker-auth header.
+	t.Setenv("VULOS_STORAGE_BROKER_SECRET", "")
+	if base.Trusted() {
+		t.Fatal("Trusted() = true with no broker secret configured")
+	}
+
+	t.Setenv("VULOS_STORAGE_BROKER_SECRET", secret)
+	if !base.Trusted() {
+		t.Fatal("Trusted() = false with matching broker-auth")
+	}
+	if (SeamStorageConfig{Endpoint: "https://x", BrokerAuth: "wrong"}).Trusted() {
+		t.Fatal("Trusted() = true with mismatched broker-auth")
+	}
+	if (SeamStorageConfig{Endpoint: "https://x"}).Trusted() {
+		t.Fatal("Trusted() = true with missing broker-auth header")
+	}
+	if (SeamStorageConfig{BrokerAuth: secret}).Trusted() {
+		t.Fatal("Trusted() = true with no endpoint (seam absent)")
+	}
+}
+
 func TestSeamStorageConfig_OfficePrefix(t *testing.T) {
 	cases := map[string]string{
 		"":           "office",

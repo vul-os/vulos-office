@@ -58,15 +58,19 @@ func seamConfigFromContext(c *gin.Context) storage.SeamStorageConfig {
 		AccessKey:    c.GetHeader("X-Vulos-Storage-Access-Key"),
 		SecretKey:    c.GetHeader("X-Vulos-Storage-Secret-Key"),
 		SessionToken: c.GetHeader("X-Vulos-Storage-Session-Token"),
+		BrokerAuth:   c.GetHeader("X-Vulos-Storage-Broker-Auth"),
 	}
 }
 
 // clientFor resolves the S3 client to use for this request: the gateway-injected
-// per-user client when the seam headers are present, otherwise the process-wide
+// per-user client when the seam headers are present AND prove they came from the
+// trusted OS gateway (valid X-Vulos-Storage-Broker-Auth against the configured
+// VULOS_STORAGE_BROKER_SECRET — see SeamStorageConfig.Trusted). Otherwise the
+// injected headers are ignored entirely and we fall back to the process-wide
 // OrgBucketClient(). May return (nil, nil) when neither is configured.
 func (b *BucketStore) clientFor(c *gin.Context) (*storage.OfficeS3Client, error) {
 	cfg := seamConfigFromContext(c)
-	if cfg.Present() {
+	if cfg.Trusted() {
 		return storage.SeamS3Client(cfg)
 	}
 	return storage.OrgBucketClient(), nil

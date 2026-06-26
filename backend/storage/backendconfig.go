@@ -26,7 +26,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -89,6 +91,53 @@ func (c OfficeBackendConfig) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidateSeamEndpoint enforces the injected-endpoint safety policy (M1) for the
+// per-request storage seam. The OS gateway may legitimately inject an on-box
+// MinIO endpoint reached over plain http on the namespace network, so unlike the
+// BYO-MinIO https-only Validate() above we cannot demand https unconditionally —
+// but we must NOT blindly bypass it either. Policy: https:// is always allowed;
+// http:// only when the host is loopback/private (on-box). Arbitrary external
+// http:// endpoints — which could exfiltrate the per-user credentials/blobs —
+// are rejected.
+func ValidateSeamEndpoint(endpoint string) error {
+	raw := strings.TrimSpace(endpoint)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("storage: seam endpoint %q: parse: %w", raw, err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if isPrivateOrLoopbackHost(u.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("storage: seam endpoint %q: http:// only allowed for loopback/private hosts", raw)
+	default:
+		return fmt.Errorf("storage: seam endpoint %q: scheme must be http(s)", raw)
+	}
+}
+
+// isPrivateOrLoopbackHost reports whether host is safe to reach over plain http:
+// a loopback/private/link-local IP literal, "localhost", or a single-label
+// hostname (an on-box service name on the namespace network, e.g. "minio").
+// Dotted hostnames are treated as potentially external and rejected for http.
+func isPrivateOrLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	// Not an IP literal: treat single-label names (no dot) as internal service
+	// names; anything with a dot is assumed to be a public DNS name.
+	return !strings.Contains(host, ".")
 }
 
 // OfficeTigrisDefaults returns an OfficeBackendConfig pre-filled from the
