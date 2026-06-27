@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/vula-office.png" alt="Vulos Office" width="120" />
+<img src="public/vulos-office.png" alt="Vulos Office" width="120" />
 
 # Vulos Office
 

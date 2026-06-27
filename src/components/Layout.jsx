@@ -66,7 +66,7 @@ function SidebarContent({ collapsed, onNavigate, onNewFile }) {
 
   return (
     <>
-      <Sidebar.Brand logoSrc="/vula-office.png" name="Vulos Office" />
+      <Sidebar.Brand logoSrc="/vulos-office.png" name="Vulos Office" />
 
       <Sidebar.Section>
         {/* "New" is the only emphatic button in the rail — primary accent. */}
@@ -213,7 +213,7 @@ function Shell({ children }) {
           <IconButton size="md" onClick={() => setMobileOpen(true)} title="Open navigation">
             <Menu size={18} />
           </IconButton>
-          <img src="/vula-office.png" alt="" className="w-6 h-6 rounded-md object-cover ring-1 ring-line-strong" />
+          <img src="/vulos-office.png" alt="" className="w-6 h-6 rounded-md object-cover ring-1 ring-line-strong" />
           <span className="text-sm font-semibold tracking-tightish text-ink">Vulos</span>
           <span className="font-mono text-[10px] uppercase tracking-wider text-ink-faint">Office</span>
         </header>
