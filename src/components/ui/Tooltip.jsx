@@ -1,42 +1,79 @@
 /**
- * Tooltip — minimal, CSS-only tooltip wrapper.  Hovers after a short delay so
- * the chrome doesn't flicker when sweeping the cursor across a toolbar.
+ * Tooltip — hover/focus label rendered in a portal.
  *
- * Usage:
  *   <Tooltip label="Bold (⌘B)"><IconButton>…</IconButton></Tooltip>
  *
- * We deliberately avoid floating-ui / portals for the budget. A wrapper span
- * lays the bubble out absolutely; positioning is `top` only — sufficient for
- * our toolbar / topbar usage. For richer positioning, the surrounding scroll
- * container will clip and we accept that for now.
+ * The bubble is portalled to <body> and positioned from the trigger's bounding
+ * rect, so it no longer clips inside `overflow-x-auto` / `overflow-hidden`
+ * toolbars (the old absolute-in-flow approach did). Appears after a short delay
+ * so sweeping the cursor across a toolbar doesn't flicker.
  */
 
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+
+const GAP = 6
+
 export default function Tooltip({ label, children, side = 'bottom', className = '' }) {
+  const wrapRef = useRef(null)
+  const bubbleRef = useRef(null)
+  const timer = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  useEffect(() => () => clearTimeout(timer.current), [])
+
   if (!label) return children
-  const positions = {
-    bottom: 'top-full mt-1.5 left-1/2 -translate-x-1/2',
-    top:    'bottom-full mb-1.5 left-1/2 -translate-x-1/2',
-    right:  'left-full ml-1.5 top-1/2 -translate-y-1/2',
-    left:   'right-full mr-1.5 top-1/2 -translate-y-1/2',
+
+  const show = () => {
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setOpen(true), 300)
   }
+  const hide = () => {
+    clearTimeout(timer.current)
+    setOpen(false)
+  }
+
+  // Position relative to the trigger once visible.
+  useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return
+    const r = wrapRef.current.getBoundingClientRect()
+    const b = bubbleRef.current?.getBoundingClientRect() || { width: 0, height: 0 }
+    let top = 0, left = 0
+    if (side === 'bottom') { top = r.bottom + GAP; left = r.left + r.width / 2 - b.width / 2 }
+    else if (side === 'top') { top = r.top - GAP - b.height; left = r.left + r.width / 2 - b.width / 2 }
+    else if (side === 'right') { top = r.top + r.height / 2 - b.height / 2; left = r.right + GAP }
+    else { top = r.top + r.height / 2 - b.height / 2; left = r.left - GAP - b.width }
+    // Keep inside the viewport horizontally.
+    left = Math.max(4, Math.min(left, window.innerWidth - b.width - 4))
+    setPos({ top, left })
+  }, [open, side, label])
+
   return (
-    <span className={`group relative inline-flex ${className}`}>
+    <span
+      ref={wrapRef}
+      className={`inline-flex ${className}`}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocusCapture={show}
+      onBlurCapture={hide}
+    >
       {children}
-      <span
-        role="tooltip"
-        className={[
-          'pointer-events-none absolute z-40 whitespace-nowrap',
-          positions[side] || positions.bottom,
-          'px-2 py-1 rounded-sm text-2xs font-medium tracking-tightish',
-          'bg-ink text-paper shadow-e2',
-          'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-          'translate-y-0.5 group-hover:translate-y-0 group-focus-within:translate-y-0',
-          'transition-[opacity,transform] duration-base ease-out',
-          'delay-300 group-hover:delay-300',
-        ].join(' ')}
-      >
-        {label}
-      </span>
+      {open && createPortal(
+        <span
+          ref={bubbleRef}
+          role="tooltip"
+          style={{ top: pos.top, left: pos.left }}
+          className={[
+            'pointer-events-none fixed z-[200] whitespace-nowrap',
+            'px-2 py-1 rounded-sm text-2xs font-medium tracking-tightish',
+            'bg-ink text-paper shadow-e2 animate-fade-in',
+          ].join(' ')}
+        >
+          {label}
+        </span>,
+        document.body,
+      )}
     </span>
   )
 }

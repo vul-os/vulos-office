@@ -5,7 +5,7 @@ import '@fortune-sheet/react/dist/index.css'
 import {
   ArrowLeft, Save, Loader2, Download, Upload, AlertCircle, MessageSquare,
   Check, Circle, ChevronDown, BarChart2, Filter, Table2, Tag, Sliders, Keyboard, Search,
-  Lock, MessageSquarePlus, X,
+  Lock, MessageSquarePlus, X, MoreHorizontal,
 } from 'lucide-react'
 import { useFilesStore, getSaveState, onSaveStateChange } from '../../store/filesStore'
 import { api } from '../../lib/api'
@@ -16,7 +16,7 @@ import { GridSession, getGridReplicaId } from '../../lib/crdt/grid.js'
 import CommentsPanel from '../../components/CommentsPanel'
 import { useLiveCursors } from '@vulos/relay-client/useLiveCursors'
 import { SheetsCursorLayer } from '../../components/RemoteCursors.jsx'
-import { Button, IconButton, Tooltip, Topbar } from '../../components/ui'
+import { Button, IconButton, Tooltip, Topbar, Menu } from '../../components/ui'
 import { useSheetKeyboardShortcuts, KeyboardShortcutsHelp, useShortcutsHelp } from './KeyboardShortcuts.jsx'
 import SheetsFindReplace from './SheetsFindReplace.jsx'
 
@@ -29,6 +29,39 @@ const NamedRangesPanel        = lazy(() => import('./NamedRangesPanel.jsx'))
 
 const RETRY_DELAY_MS  = 4000
 const AUTOSAVE_DELAY_MS = 3000
+
+/**
+ * normalizeSheets — give every sheet the dimensions/identity fields Fortune
+ * Sheet needs. Without explicit `row`/`column` (and `id`/`order`/`status`) the
+ * library computes its default selection against undefined bounds, which is why
+ * the name box rendered "A1:NaN" on a fresh/empty sheet. Providing them yields a
+ * valid A1 selection and a stable grid.
+ */
+function normalizeSheets(sheets) {
+  const arr = Array.isArray(sheets) && sheets.length
+    ? sheets
+    : [{ name: 'Sheet1', celldata: [], config: {} }]
+  return arr.map((sh, i) => ({
+    ...sh,
+    name: sh.name || `Sheet${i + 1}`,
+    celldata: sh.celldata || [],
+    config: sh.config || {},
+    id: sh.id || `sheet_${i + 1}`,
+    order: typeof sh.order === 'number' ? sh.order : i,
+    status: typeof sh.status === 'number' ? sh.status : (i === 0 ? 1 : 0),
+    row: sh.row || 100,
+    column: sh.column || 26,
+  }))
+}
+
+// Shared trigger styling for the Import / Export menus.
+const MENU_TRIGGER_CN = [
+  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md',
+  'bg-paper border border-line text-xs font-medium tracking-tightish',
+  'text-ink-muted hover:border-line-strong hover:text-ink',
+  'transition-colors duration-fast ease-out',
+  'focus-visible:outline-none focus-visible:shadow-focus',
+].join(' ')
 
 // ── FreezePanel ─────────────────────────────────────────────────────────────
 function FreezePanel({ workbookRef }) {
@@ -258,7 +291,7 @@ export default function SheetsEditor() {
   const { files, saveFileWithDraft, markDirty } = useFilesStore()
   const [file, setFile] = useState(files.find((f) => f.id === id))
   const [title, setTitle] = useState(file?.name || 'Untitled Sheet')
-  const [data, setData] = useState(file?.content || [{ name: 'Sheet1', celldata: [], config: {} }])
+  const [data, setData] = useState(() => normalizeSheets(file?.content))
   const [saveStatus, setSaveStatus] = useState(getSaveState(id))
   const [draft, setDraft] = useState(null)
   const [retryCount, setRetryCount] = useState(0)
@@ -360,7 +393,7 @@ export default function SheetsEditor() {
       api.getFile(id).then((f) => {
         setFile(f)
         setTitle(f.name)
-        setData(f.content || [{ name: 'Sheet1', celldata: [], config: {} }])
+        setData(normalizeSheets(f.content))
       }).catch(() => navigate('/sheets'))
     }
   }, [id])
@@ -600,151 +633,148 @@ export default function SheetsEditor() {
         }
         actions={
           <>
-            {/* Toolbar shortcut buttons */}
-            <FreezePanel workbookRef={workbookRef} />
-            <Tooltip label="Cell comment">
-              <IconButton size="sm" active={showCellComment} onClick={() => setShowCellComment((v) => !v)}>
-                <MessageSquarePlus size={14} />
-              </IconButton>
-            </Tooltip>
+            {/* Find/Replace stays primary (always visible) */}
             <Tooltip label="Find / Replace (Ctrl+F)">
               <IconButton size="sm" active={showFindReplace} onClick={() => setShowFindReplace((v) => !v)}>
                 <Search size={14} />
               </IconButton>
             </Tooltip>
-            <Tooltip label="Pivot table (Insert → Pivot table)">
-              <IconButton size="sm" active={showPivot} onClick={togglePanel(setShowPivot)}>
-                <Table2 size={14} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip label="Filter views (Data → Filter views)">
-              <IconButton size="sm" active={showFilter} onClick={togglePanel(setShowFilter)}>
-                <Filter size={14} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip label="Conditional formatting (Format → Conditional formatting)">
-              <IconButton size="sm" active={showCondFormat} onClick={togglePanel(setShowCondFormat)}>
-                <Sliders size={14} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip label="Named ranges (Data → Named ranges)">
-              <IconButton size="sm" active={showNamedRanges} onClick={togglePanel(setShowNamedRanges)}>
-                <Tag size={14} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip label="Insert chart">
-              <IconButton size="sm" onClick={() => setShowChartWizard(true)}>
-                <BarChart2 size={14} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip label="Keyboard shortcuts (⌘/)">
-              <IconButton size="sm" onClick={openHelp}>
-                <Keyboard size={14} />
-              </IconButton>
-            </Tooltip>
 
-            <Tooltip label="Comments">
-              <IconButton size="sm" active={showComments} onClick={() => setShowComments((v) => !v)}>
-                <MessageSquare size={14} />
-              </IconButton>
-            </Tooltip>
+            {/* Secondary tools — inline on ≥lg, collapsed into "More" below lg */}
+            <div className="hidden lg:flex items-center gap-1">
+              <FreezePanel workbookRef={workbookRef} />
+              <Tooltip label="Cell comment">
+                <IconButton size="sm" active={showCellComment} onClick={() => setShowCellComment((v) => !v)}>
+                  <MessageSquarePlus size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Pivot table (Insert → Pivot table)">
+                <IconButton size="sm" active={showPivot} onClick={togglePanel(setShowPivot)}>
+                  <Table2 size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Filter views (Data → Filter views)">
+                <IconButton size="sm" active={showFilter} onClick={togglePanel(setShowFilter)}>
+                  <Filter size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Conditional formatting (Format → Conditional formatting)">
+                <IconButton size="sm" active={showCondFormat} onClick={togglePanel(setShowCondFormat)}>
+                  <Sliders size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Named ranges (Data → Named ranges)">
+                <IconButton size="sm" active={showNamedRanges} onClick={togglePanel(setShowNamedRanges)}>
+                  <Tag size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Insert chart">
+                <IconButton size="sm" onClick={() => setShowChartWizard(true)}>
+                  <BarChart2 size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Keyboard shortcuts (⌘/)">
+                <IconButton size="sm" onClick={openHelp}>
+                  <Keyboard size={14} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip label="Comments">
+                <IconButton size="sm" active={showComments} onClick={() => setShowComments((v) => !v)}>
+                  <MessageSquare size={14} />
+                </IconButton>
+              </Tooltip>
+            </div>
+
+            {/* Overflow "More" — below lg only */}
+            <div className="lg:hidden">
+              <Menu
+                align="right"
+                width="w-56"
+                trigger={
+                  <IconButton size="sm" title="More tools">
+                    <MoreHorizontal size={16} />
+                  </IconButton>
+                }
+              >
+                <Menu.Item active={showCellComment} onClick={() => setShowCellComment((v) => !v)}>
+                  <MessageSquarePlus size={14} /> Cell comment
+                </Menu.Item>
+                <Menu.Item active={showPivot} onClick={togglePanel(setShowPivot)}>
+                  <Table2 size={14} /> Pivot table
+                </Menu.Item>
+                <Menu.Item active={showFilter} onClick={togglePanel(setShowFilter)}>
+                  <Filter size={14} /> Filter views
+                </Menu.Item>
+                <Menu.Item active={showCondFormat} onClick={togglePanel(setShowCondFormat)}>
+                  <Sliders size={14} /> Conditional formatting
+                </Menu.Item>
+                <Menu.Item active={showNamedRanges} onClick={togglePanel(setShowNamedRanges)}>
+                  <Tag size={14} /> Named ranges
+                </Menu.Item>
+                <Menu.Item onClick={() => setShowChartWizard(true)}>
+                  <BarChart2 size={14} /> Insert chart
+                </Menu.Item>
+                <Menu.Item onClick={openHelp}>
+                  <Keyboard size={14} /> Keyboard shortcuts
+                </Menu.Item>
+                <Menu.Item active={showComments} onClick={() => setShowComments((v) => !v)}>
+                  <MessageSquare size={14} /> Comments
+                </Menu.Item>
+              </Menu>
+            </div>
 
             {/* Import menu */}
-            <div className="relative group">
-              <button
-                type="button"
-                aria-haspopup="menu"
-                className={[
-                  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md',
-                  'bg-paper border border-line text-xs font-medium tracking-tightish',
-                  'text-ink-muted hover:border-line-strong hover:text-ink',
-                  'transition-colors duration-fast ease-out',
-                  'focus-visible:outline-none focus-visible:shadow-focus',
-                ].join(' ')}
-              >
-                <Upload size={12} /> Import
-                <ChevronDown size={11} className="opacity-60" />
-              </button>
-              <div
-                role="menu"
-                className={[
-                  'absolute right-0 top-full mt-0.5 w-44 py-1',
-                  'bg-paper border border-line rounded-md shadow-e2 z-30 text-sm',
-                  'hidden group-hover:block animate-scale-in',
-                ].join(' ')}
-              >
-                <button
-                  role="menuitem"
-                  onClick={() => { if (importInputRef.current) { importInputRef.current.accept = '.csv'; importInputRef.current.click() } }}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-ink-faint w-10">CSV</span>
-                  CSV file
+            <Menu
+              align="right"
+              trigger={
+                <button type="button" className={MENU_TRIGGER_CN}>
+                  <Upload size={12} /> Import
+                  <ChevronDown size={11} className="opacity-60" />
                 </button>
-                <button
-                  role="menuitem"
-                  onClick={() => { if (importInputRef.current) { importInputRef.current.accept = '.xlsx'; importInputRef.current.click() } }}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">XLSX</span>
-                  Excel workbook
-                </button>
-              </div>
-            </div>
+              }
+            >
+              <Menu.Item onClick={() => { if (importInputRef.current) { importInputRef.current.accept = '.csv'; importInputRef.current.click() } }}>
+                <span className="text-2xs font-bold tracking-eyebrow text-ink-faint w-10">CSV</span>
+                CSV file
+              </Menu.Item>
+              <Menu.Item onClick={() => { if (importInputRef.current) { importInputRef.current.accept = '.xlsx'; importInputRef.current.click() } }}>
+                <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">XLSX</span>
+                Excel workbook
+              </Menu.Item>
+            </Menu>
 
             {/* Export menu */}
-            <div className="relative group">
-              <button
-                type="button"
-                aria-haspopup="menu"
-                className={[
-                  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md',
-                  'bg-paper border border-line text-xs font-medium tracking-tightish',
-                  'text-ink-muted hover:border-line-strong hover:text-ink',
-                  'transition-colors duration-fast ease-out',
-                  'focus-visible:outline-none focus-visible:shadow-focus',
-                ].join(' ')}
-              >
-                <Download size={12} /> Export
-                <ChevronDown size={11} className="opacity-60" />
-              </button>
-              <div
-                role="menu"
-                className={[
-                  'absolute right-0 top-full mt-0.5 w-44 py-1',
-                  'bg-paper border border-line rounded-md shadow-e2 z-30 text-sm',
-                  'hidden group-hover:block animate-scale-in',
-                ].join(' ')}
-              >
-                <button
-                  role="menuitem"
-                  onClick={() => exportSheetsToXlsx(data, title)}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">XLSX</span>
-                  Excel workbook
+            <Menu
+              align="right"
+              trigger={
+                <button type="button" className={MENU_TRIGGER_CN}>
+                  <Download size={12} /> Export
+                  <ChevronDown size={11} className="opacity-60" />
                 </button>
-                <button
-                  role="menuitem"
-                  onClick={() => exportSheetsToCsv(data, title)}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-ink-faint w-10">CSV</span>
-                  Current sheet (CSV)
-                </button>
-                {id && (
-                  <a
-                    role="menuitem"
-                    href={`/api/sheets/${id}/export?format=xlsx`}
-                    download
-                    className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                  >
-                    <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">SRV</span>
-                    Server XLSX
-                  </a>
-                )}
-              </div>
-            </div>
+              }
+            >
+              <Menu.Item onClick={() => exportSheetsToXlsx(data, title)}>
+                <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">XLSX</span>
+                Excel workbook
+              </Menu.Item>
+              <Menu.Item onClick={() => exportSheetsToCsv(data, title)}>
+                <span className="text-2xs font-bold tracking-eyebrow text-ink-faint w-10">CSV</span>
+                Current sheet (CSV)
+              </Menu.Item>
+              {id && (
+                <Menu.Item onClick={() => {
+                  const a = document.createElement('a')
+                  a.href = `/api/sheets/${id}/export?format=xlsx`
+                  a.download = ''
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                }}>
+                  <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">SRV</span>
+                  Server XLSX
+                </Menu.Item>
+              )}
+            </Menu>
 
             <Button
               variant="primary"
@@ -770,6 +800,7 @@ export default function SheetsEditor() {
             data={data}
             onChange={handleChange}
             showFormulaBar={true}
+            defaultFontSize={11}
             hooks={{
               afterSelectionChange: (_sheetId, selection) => {
                 if (selection?.row_focus !== undefined) {

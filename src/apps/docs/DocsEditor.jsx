@@ -50,7 +50,8 @@ import { DocsCollabSession } from '../../lib/crdt/index.js'
 import { getSuggestionStore } from '../../lib/crdt/suggestions.js'
 import { useLiveCursors } from '@vulos/relay-client/useLiveCursors'
 import { DocsCursorLayer } from '../../components/RemoteCursors.jsx'
-import { Button, IconButton, Tooltip, Topbar } from '../../components/ui'
+import { Button, IconButton, Tooltip, Topbar, LoadingState } from '../../components/ui'
+import { Skeleton } from '../../components/ui/LoadingState'
 
 // Imported files may carry _html; use that as editor content
 function resolveContent(content) {
@@ -667,9 +668,16 @@ export default function DocsEditor() {
   })()
 
   if (!editor) {
+    // Paper-shaped skeleton (not a bare spinner) so the open feels like a
+    // document settling in, using the shared shimmer.
     return (
-      <div className="flex-1 flex items-center justify-center bg-bg">
-        <Loader2 className="animate-spin text-accent" size={22} />
+      <div className="flex-1 overflow-hidden bg-bg" role="status" aria-label="Opening document…">
+        <div className="mx-auto my-8 w-full max-w-3xl px-10 py-12 bg-paper border border-line rounded-md shadow-e1">
+          <Skeleton className="h-8 w-2/3 mb-6" />
+          <LoadingState.Lines count={3} className="mb-6" />
+          <LoadingState.Lines count={4} className="mb-6" />
+          <LoadingState.Lines count={3} />
+        </div>
       </div>
     )
   }

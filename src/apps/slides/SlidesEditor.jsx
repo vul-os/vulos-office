@@ -27,7 +27,7 @@ import { TreeSession, getTreeReplicaId, ordKeyBetween } from '../../lib/crdt/tre
 import CommentsPanel from '../../components/CommentsPanel'
 import { useLiveCursors } from '@vulos/relay-client/useLiveCursors'
 import { getSlideViewers } from '../../components/RemoteCursors.jsx'
-import { Button, IconButton, Tooltip, Topbar } from '../../components/ui'
+import { Button, IconButton, Tooltip, Topbar, Menu, UrlPopover } from '../../components/ui'
 import ThemeGallery from './ThemeGallery.jsx'
 import MasterSlideEditor from './MasterSlideEditor.jsx'
 import TransitionPanel from './TransitionPanel.jsx'
@@ -37,6 +37,40 @@ import { usePresenterView } from './PresenterView.jsx'
 import { getTheme } from './themes.js'
 
 // HTML sanitisation uses the shared config in src/lib/sanitize.js.
+
+// SlideLinkButton — link insert with an inline anchored URL popover (replaces
+// the blocking window.prompt). Self-contained open state.
+function SlideLinkButton({ editor }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative inline-flex">
+      <Tooltip label="Insert link (⌘K)">
+        <IconButton
+          size="sm"
+          active={editor.isActive('link')}
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Insert link"
+        >
+          <LinkIcon size={14} />
+        </IconButton>
+      </Tooltip>
+      {open && (
+        <UrlPopover
+          label="Link URL"
+          initialValue={editor.getAttributes('link').href || ''}
+          onSubmit={(url) => {
+            editor.chain().focus().extendMarkRange('link').setLink({ href: url, target: '_blank' }).run()
+            setOpen(false)
+          }}
+          onRemove={editor.isActive('link')
+            ? () => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setOpen(false) }
+            : undefined}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
 
 // Reveal.js theme names (kept for backward compatibility with legacy decks).
 const LEGACY_TRANSITIONS = ['none', 'fade', 'slide', 'convex', 'concave', 'zoom']
@@ -581,56 +615,39 @@ export default function SlidesEditor() {
               </IconButton>
             </Tooltip>
             {/* Export menu */}
-            <div className="relative group">
-              <button
-                type="button"
-                aria-haspopup="menu"
-                className={[
-                  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md',
-                  'bg-paper border border-line text-xs font-medium tracking-tightish',
-                  'text-ink-muted hover:border-line-strong hover:text-ink',
-                  'transition-colors duration-fast ease-out',
-                  'focus-visible:outline-none focus-visible:shadow-focus',
-                ].join(' ')}
-              >
-                <Download size={12} /> Export
-                <ChevronDownIcon size={11} className="opacity-60" />
-              </button>
-              <div
-                role="menu"
-                className={[
-                  'absolute right-0 top-full mt-0.5 w-52 py-1',
-                  'bg-paper border border-line rounded-md shadow-e2 z-30 text-sm',
-                  'hidden group-hover:block animate-scale-in',
-                ].join(' ')}
-              >
+            <Menu
+              align="right"
+              width="w-52"
+              trigger={
                 <button
-                  role="menuitem"
-                  onClick={handleServerPdfExport}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
+                  type="button"
+                  className={[
+                    'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md',
+                    'bg-paper border border-line text-xs font-medium tracking-tightish',
+                    'text-ink-muted hover:border-line-strong hover:text-ink',
+                    'transition-colors duration-fast ease-out',
+                    'focus-visible:outline-none focus-visible:shadow-focus',
+                  ].join(' ')}
                 >
-                  <span className="text-2xs font-bold tracking-eyebrow text-danger w-10">PDF</span>
-                  Export as PDF
+                  <Download size={12} /> Export
+                  <ChevronDownIcon size={11} className="opacity-60" />
                 </button>
-                <button
-                  role="menuitem"
-                  onClick={() => exportSlidesToPptx(slidesData, title)}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">PPTX</span>
-                  Export as PowerPoint
-                </button>
-                <hr className="border-line my-1" />
-                <button
-                  role="menuitem"
-                  onClick={handlePrintNotes}
-                  className="w-full text-left px-3 py-2 hover:bg-accent-tint text-ink-muted flex items-center gap-2"
-                >
-                  <span className="text-2xs font-bold tracking-eyebrow text-warning w-10">NOTE</span>
-                  Print speaker notes
-                </button>
-              </div>
-            </div>
+              }
+            >
+              <Menu.Item onClick={handleServerPdfExport}>
+                <span className="text-2xs font-bold tracking-eyebrow text-danger w-10">PDF</span>
+                Export as PDF
+              </Menu.Item>
+              <Menu.Item onClick={() => exportSlidesToPptx(slidesData, title)}>
+                <span className="text-2xs font-bold tracking-eyebrow text-accent w-10">PPTX</span>
+                Export as PowerPoint
+              </Menu.Item>
+              <Menu.Sep />
+              <Menu.Item onClick={handlePrintNotes}>
+                <span className="text-2xs font-bold tracking-eyebrow text-warning w-10">NOTE</span>
+                Print speaker notes
+              </Menu.Item>
+            </Menu>
             <Button
               variant="primary"
               size="sm"
@@ -872,23 +889,26 @@ export default function SlidesEditor() {
                             ))}
                           </div>
                         )}
-                        <div className="absolute top-1 right-1 hidden group-hover:flex gap-0.5">
+                        {/* Per-slide controls — revealed on hover for mouse,
+                            always shown (and ≥44px via the coarse-pointer rule)
+                            on touch so they're reachable without hover. */}
+                        <div className="absolute top-1 right-1 hidden group-hover:flex [@media(pointer:coarse)]:flex gap-0.5 bg-bg-elev2/80 rounded-md">
                           <IconButton
-                            size="sm" title="Move up" className="h-5 w-5"
+                            size="sm" title="Move up"
                             onClick={(e) => { e.stopPropagation(); moveSlide(idx, -1) }}
-                          ><ChevronUp size={10} /></IconButton>
+                          ><ChevronUp size={12} /></IconButton>
                           <IconButton
-                            size="sm" title="Move down" className="h-5 w-5"
+                            size="sm" title="Move down"
                             onClick={(e) => { e.stopPropagation(); moveSlide(idx, 1) }}
-                          ><ChevronDown size={10} /></IconButton>
+                          ><ChevronDown size={12} /></IconButton>
                           <IconButton
-                            size="sm" title="Duplicate" className="h-5 w-5"
+                            size="sm" title="Duplicate"
                             onClick={(e) => { e.stopPropagation(); duplicateSlide(idx) }}
-                          ><Copy size={10} /></IconButton>
+                          ><Copy size={12} /></IconButton>
                           <IconButton
-                            size="sm" title="Delete slide" className="h-5 w-5 hover:text-danger"
+                            size="sm" title="Delete slide" className="hover:text-danger"
                             onClick={(e) => { e.stopPropagation(); deleteSlide(idx) }}
-                          ><Trash2 size={10} /></IconButton>
+                          ><Trash2 size={12} /></IconButton>
                         </div>
                       </div>
                     )
@@ -1005,71 +1025,64 @@ export default function SlidesEditor() {
                 <span className="toolbar-divider" />
 
                 {/* Heading style selector */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    aria-haspopup="menu"
-                    className="toolbar-btn flex items-center gap-1 px-2 min-w-0 sm:min-w-[56px] text-xs"
-                    aria-label="Heading style"
-                  >
-                    <TypeIcon size={12} aria-hidden="true" />
-                    {SLIDE_HEADINGS.find((h) =>
-                      h.value === 0 ? !editor.isActive('heading') : editor.isActive('heading', { level: h.value })
-                    )?.label || 'Normal'}
-                    <ChevronDownIcon size={10} className="opacity-60" aria-hidden="true" />
-                  </button>
-                  <div
-                    role="menu"
-                    className="absolute left-0 top-full mt-0.5 w-28 py-1 bg-paper border border-line rounded-md shadow-e2 z-30 hidden group-hover:block animate-scale-in"
-                  >
-                    {SLIDE_HEADINGS.map(({ label, value }) => (
-                      <button
-                        key={value}
-                        role="menuitem"
-                        onClick={() => {
-                          if (value === 0) editor.chain().focus().setParagraph().run()
-                          else editor.chain().focus().toggleHeading({ level: value }).run()
-                        }}
-                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent-tint text-ink-muted"
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <Menu
+                  width="w-28"
+                  trigger={
+                    <button
+                      type="button"
+                      className="toolbar-btn flex items-center gap-1 px-2 min-w-0 sm:min-w-[56px] text-xs"
+                      aria-label="Heading style"
+                    >
+                      <TypeIcon size={12} aria-hidden="true" />
+                      {SLIDE_HEADINGS.find((h) =>
+                        h.value === 0 ? !editor.isActive('heading') : editor.isActive('heading', { level: h.value })
+                      )?.label || 'Normal'}
+                      <ChevronDownIcon size={10} className="opacity-60" aria-hidden="true" />
+                    </button>
+                  }
+                >
+                  {SLIDE_HEADINGS.map(({ label, value }) => (
+                    <Menu.Item
+                      key={value}
+                      active={value === 0 ? !editor.isActive('heading') : editor.isActive('heading', { level: value })}
+                      onClick={() => {
+                        if (value === 0) editor.chain().focus().setParagraph().run()
+                        else editor.chain().focus().toggleHeading({ level: value }).run()
+                      }}
+                    >
+                      {label}
+                    </Menu.Item>
+                  ))}
+                </Menu>
 
                 {/* Font size */}
-                <div className="relative group">
-                  <button
-                    type="button"
-                    aria-haspopup="menu"
-                    className="toolbar-btn flex items-center gap-1 px-1 w-12 text-xs"
-                    aria-label="Font size"
-                  >
-                    <span className="flex-1 text-center tabular-nums">
-                      {(() => {
-                        const fs = editor.getAttributes('textStyle').fontSize
-                        return fs ? parseInt(fs) : '—'
-                      })()}
-                    </span>
-                    <ChevronDownIcon size={10} aria-hidden="true" />
-                  </button>
-                  <div
-                    role="menu"
-                    className="absolute left-0 top-full mt-0.5 w-24 py-1 bg-paper border border-line rounded-md shadow-e2 z-30 hidden group-hover:block animate-scale-in"
-                  >
-                    {SLIDE_FONT_SIZES.map((sz) => (
-                      <button
-                        key={sz}
-                        role="menuitem"
-                        onClick={() => editor.chain().focus().setMark('textStyle', { fontSize: `${sz}pt` }).run()}
-                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent-tint text-ink-muted"
-                      >
-                        {sz}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <Menu
+                  width="w-24"
+                  trigger={
+                    <button
+                      type="button"
+                      className="toolbar-btn flex items-center gap-1 px-1 w-12 text-xs"
+                      aria-label="Font size"
+                    >
+                      <span className="flex-1 text-center tabular-nums">
+                        {(() => {
+                          const fs = editor.getAttributes('textStyle').fontSize
+                          return fs ? parseInt(fs) : '—'
+                        })()}
+                      </span>
+                      <ChevronDownIcon size={10} aria-hidden="true" />
+                    </button>
+                  }
+                >
+                  {SLIDE_FONT_SIZES.map((sz) => (
+                    <Menu.Item
+                      key={sz}
+                      onClick={() => editor.chain().focus().setMark('textStyle', { fontSize: `${sz}pt` }).run()}
+                    >
+                      {sz}
+                    </Menu.Item>
+                  ))}
+                </Menu>
 
                 <span className="toolbar-divider" />
                 <Tooltip label="Bold (⌘B)">
@@ -1096,19 +1109,7 @@ export default function SlidesEditor() {
                     <Strikethrough size={14} />
                   </IconButton>
                 </Tooltip>
-                <Tooltip label="Insert link (⌘K)">
-                  <IconButton size="sm" active={editor.isActive('link')}
-                    onClick={() => {
-                      const prev = editor.getAttributes('link').href || ''
-                      const url = window.prompt('URL:', prev)
-                      if (url === null) return
-                      if (!url) editor.chain().focus().unsetLink().run()
-                      else editor.chain().focus().setLink({ href: url, target: '_blank' }).run()
-                    }}
-                    aria-label="Insert link">
-                    <LinkIcon size={14} />
-                  </IconButton>
-                </Tooltip>
+                <SlideLinkButton editor={editor} />
                 {/* Text color */}
                 <label
                   className="toolbar-btn relative cursor-pointer flex items-center gap-1"

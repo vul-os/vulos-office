@@ -5,6 +5,10 @@
 //
 export { default as Button }     from './Button'
 export { default as IconButton } from './IconButton'
+export { default as ToolbarButton } from './ToolbarButton'
+export { default as Menu }       from './Menu'
+export { default as UrlPopover, isSafeUrl, normalizeUrl } from './UrlPopover'
+export { useToast }              from './Toast'
 export { default as Input }      from './Input'
 export { default as Card }       from './Card'
 export { default as Tabs }       from './Tabs'

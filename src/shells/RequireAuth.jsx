@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { LoadingState } from '../components/ui'
 
 export default function RequireAuth({ children, apiBase = '' }) {
   const [state, setState] = useState('loading')
@@ -30,22 +31,8 @@ export default function RequireAuth({ children, apiBase = '' }) {
 
   if (state === 'loading') {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg, #0f0f0f)',
-      }}>
-        <div style={{
-          width: '28px',
-          height: '28px',
-          border: '2px solid var(--accent, #0f6a6c)',
-          borderTopColor: 'transparent',
-          borderRadius: '50%',
-          animation: 'spin 0.7s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <div className="min-h-screen flex items-center justify-center bg-bg">
+        <LoadingState label="Checking your session…" />
       </div>
     )
   }

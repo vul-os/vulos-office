@@ -31,7 +31,7 @@ const IconButton = forwardRef(function IconButton(
   ref,
 ) {
   const cn = [
-    'inline-flex items-center justify-center shrink-0',
+    'ui-iconbtn inline-flex items-center justify-center shrink-0',
     'rounded-md text-ink-muted',
     'transition-[background,color] duration-fast ease-out',
     'hover:bg-accent-tint hover:text-ink',
@@ -45,7 +45,15 @@ const IconButton = forwardRef(function IconButton(
     .join(' ')
 
   return (
-    <button ref={ref} type="button" title={title} aria-label={title} className={cn} {...rest}>
+    <button
+      ref={ref}
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active || undefined}
+      className={cn}
+      {...rest}
+    >
       {children}
     </button>
   )

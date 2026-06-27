@@ -8,7 +8,7 @@ import { useFilesStore } from '../store/filesStore'
 import { useLocalFilesStore } from '../store/localFilesStore'
 import { importFromUrl } from '../lib/importFile'
 import NewFileModal from './NewFileModal'
-import { Card, Button, Tooltip } from './ui'
+import { Card, Button, Tooltip, useToast } from './ui'
 
 // ─── Token-aligned type map (no raw indigo/emerald/amber) ───────────────────
 const typeInfo = {
@@ -39,13 +39,13 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-async function openLocalFile(file, navigate, setImporting) {
+async function openLocalFile(file, navigate, setImporting, showToast) {
   setImporting(file.path)
   try {
     await importFromUrl(file, navigate)
   } catch (e) {
     console.error(e)
-    alert(`Could not open ${file.name}: ${e.message}`)
+    showToast(`Could not open ${file.name}: ${e.message}`, 'error')
   } finally {
     setImporting(null)
   }
@@ -60,6 +60,7 @@ const quickStarts = [
 
 export default function Home() {
   const navigate = useNavigate()
+  const { showToast, toast } = useToast()
   const { files, loading: filesLoading, fetchFiles } = useFilesStore()
   const { files: localFiles, loading: localLoading, scanned, scan } = useLocalFilesStore()
   const [showLocalAll, setShowLocalAll] = useState(false)
@@ -233,7 +234,7 @@ export default function Home() {
                   return (
                     <button
                       key={file.path}
-                      onClick={() => openLocalFile(file, navigate, setImporting)}
+                      onClick={() => openLocalFile(file, navigate, setImporting, showToast)}
                       disabled={importing === file.path}
                       className={[
                         'w-full flex items-center gap-3 px-4 py-2.5 text-left group',
@@ -286,6 +287,7 @@ export default function Home() {
           onClose={() => { setShowNew(false); setNewType(null) }}
         />
       )}
+      {toast}
     </div>
   )
 }

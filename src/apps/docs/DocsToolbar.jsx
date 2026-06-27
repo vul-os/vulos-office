@@ -24,6 +24,7 @@ import {
   ListTree, Printer,
 } from 'lucide-react'
 import { api } from '../../lib/api'
+import { Menu, ToolbarButton, UrlPopover } from '../../components/ui'
 import { exportToDocx, exportToPdf, exportToMarkdown, exportToHtml } from './docsExport'
 import TableOfContents from './components/TableOfContents'
 
@@ -65,74 +66,26 @@ const LINE_SPACINGS = [
 // Primitive components
 // ---------------------------------------------------------------------------
 
-function Btn({ title, children, onClick, active, disabled, className = '' }) {
-  return (
-    <button
-      title={title}
-      aria-label={title}
-      aria-pressed={active || undefined}
-      onClick={onClick}
-      disabled={!!disabled}
-      className={`toolbar-btn ${active ? 'active' : ''} ${className}`}
-    >
-      {children}
-    </button>
-  )
-}
+// Toolbar primitives now come from the shared design system so the four
+// editors stop drifting:
+//   Btn      → ToolbarButton (emits aria-pressed from `active`)
+//   Dropdown → Menu (keyboard/touch-accessible: open state + Esc + outside-click)
+//   MenuItem → Menu.Item
+const Btn = ToolbarButton
 
 function Sep() {
   return <span className="toolbar-divider" aria-hidden="true" />
 }
 
-// Accessible dropdown using hover + focus-within (no JS state needed for pure hover).
-// We add an explicit open state so keyboard users can toggle.
 function Dropdown({ trigger, children, align = 'left', wide = false }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  // Close on outside click
-  const handleBlur = (e) => {
-    if (!ref.current?.contains(e.relatedTarget)) setOpen(false)
-  }
-
   return (
-    <div
-      ref={ref}
-      className="relative"
-      onBlur={handleBlur}
-      onMouseLeave={() => setOpen(false)}
-      onMouseEnter={() => setOpen(true)}
-    >
-      <div onClick={() => setOpen((v) => !v)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v) } }}>
-        {trigger}
-      </div>
-      {open && (
-        <div
-          className={[
-            'absolute top-full mt-0.5 bg-paper border border-line rounded-md shadow-e2 z-40 py-1 animate-scale-in',
-            align === 'right' ? 'right-0' : 'left-0',
-            wide ? 'w-52' : 'w-40',
-          ].join(' ')}
-          role="menu"
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function MenuItem({ children, onClick, active, className = '' }) {
-  return (
-    <button
-      role="menuitem"
-      onClick={onClick}
-      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent-tint transition-colors flex items-center gap-2 ${active ? 'text-accent font-medium' : 'text-ink-muted'} ${className}`}
-    >
+    <Menu trigger={trigger} align={align} width={wide ? 'w-52' : 'w-40'}>
       {children}
-    </button>
+    </Menu>
   )
 }
+
+const MenuItem = Menu.Item
 
 // ---------------------------------------------------------------------------
 // HeadingSelector
@@ -386,7 +339,7 @@ function OverflowMenu({ editor, title, onInsertToc }) {
       </MenuItem>
       <MenuItem
         onClick={() => editor.chain().focus().insertContent(
-          '<p style="page-break-after:always;border-top:2px dashed var(--line,#e2e8f0);margin:16px 0;padding-bottom:16px;" data-page-break="true"><br/></p>'
+          '<p style="page-break-after:always;border-top:2px dashed var(--line);margin:16px 0;padding-bottom:16px;" data-page-break="true"><br/></p>'
         ).run()}
       >
         <Minus size={13} /> Page break
@@ -483,6 +436,8 @@ function InsertTableMenu({ editor }) {
 export default function DocsToolbar({ editor, title }) {
   const imgInput = useRef(null)
   const [showToc, setShowToc] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [imgUrlOpen, setImgUrlOpen] = useState(false)
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -500,20 +455,6 @@ export default function DocsToolbar({ editor, title }) {
     e.target.value = ''
   }
 
-  const setLink = () => {
-    const prev = editor.getAttributes('link').href || ''
-    const url = window.prompt('URL:', prev)
-    if (url === null) return
-    if (!url) editor.chain().focus().unsetLink().run()
-    else editor.chain().focus().setLink({ href: url, target: '_blank' }).run()
-  }
-
-  const insertImageFromUrl = () => {
-    const url = window.prompt('Image URL:')
-    if (!url) return
-    editor.chain().focus().setImage({ src: url }).run()
-  }
-
   if (!editor) return null
 
   return (
@@ -522,7 +463,9 @@ export default function DocsToolbar({ editor, title }) {
       role="toolbar"
       aria-label="Document formatting"
     >
-      <div className="flex items-center gap-0 px-2 py-1 flex-wrap min-h-[44px] overflow-x-auto">
+      {/* Single overflow strategy: scroll horizontally (no flex-wrap) so the
+          row never reflows into a crushed multi-line block on narrow screens. */}
+      <div className="flex items-center gap-0 px-2 py-1 min-h-[44px] overflow-x-auto">
 
         {/* ── Undo / Redo ──────────────────────────────────────────────── */}
         <div className="flex items-center gap-0 mr-1">
@@ -623,14 +566,31 @@ export default function DocsToolbar({ editor, title }) {
           />
         </label>
 
-        {/* Link (Cmd+K) */}
-        <Btn
-          title="Insert link (Cmd+K)"
-          onClick={setLink}
-          active={editor.isActive('link')}
-        >
-          <Link size={15} />
-        </Btn>
+        {/* Link (Cmd+K) — inline anchored popover (no native prompt) */}
+        <div className="relative">
+          <Btn
+            title="Insert link (Cmd+K)"
+            onClick={() => setLinkOpen((v) => !v)}
+            active={editor.isActive('link')}
+          >
+            <Link size={15} />
+          </Btn>
+          {linkOpen && (
+            <UrlPopover
+              label="Link URL"
+              submitLabel="Apply"
+              initialValue={editor.getAttributes('link').href || ''}
+              onSubmit={(url) => {
+                editor.chain().focus().extendMarkRange('link').setLink({ href: url, target: '_blank' }).run()
+                setLinkOpen(false)
+              }}
+              onRemove={editor.isActive('link')
+                ? () => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setLinkOpen(false) }
+                : undefined}
+              onClose={() => setLinkOpen(false)}
+            />
+          )}
+        </div>
 
         {/* Clear formatting */}
         <Btn
@@ -728,10 +688,21 @@ export default function DocsToolbar({ editor, title }) {
         <Btn title="Insert image (upload)" onClick={() => imgInput.current?.click()}>
           <Image size={15} />
         </Btn>
-        {/* Image: from URL */}
-        <Btn title="Insert image from URL" onClick={insertImageFromUrl}>
-          <span className="text-2xs font-bold">URL</span>
-        </Btn>
+        {/* Image: from URL — inline anchored popover (no native prompt) */}
+        <div className="relative">
+          <Btn title="Insert image from URL" onClick={() => setImgUrlOpen((v) => !v)}>
+            <span className="text-2xs font-bold">URL</span>
+          </Btn>
+          {imgUrlOpen && (
+            <UrlPopover
+              label="Image URL"
+              placeholder="https://…/image.png"
+              submitLabel="Insert"
+              onSubmit={(url) => { editor.chain().focus().setImage({ src: url }).run(); setImgUrlOpen(false) }}
+              onClose={() => setImgUrlOpen(false)}
+            />
+          )}
+        </div>
 
         {/* Table: NxM picker */}
         <InsertTableMenu editor={editor} />

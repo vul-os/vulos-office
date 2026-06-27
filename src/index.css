@@ -52,11 +52,24 @@
     color: var(--ink-faint);
   }
 
-  /* Focus ring — accent tint, never the OS default */
+  /* Focus ring — accent tint, never the OS default.
+   * No forced radius: elements keep their own corner geometry. */
   :focus-visible {
     outline: none;
     box-shadow: var(--elev-focus);
-    border-radius: var(--radius-sm);
+  }
+}
+
+/* ============================================================================
+ * Touch / coarse-pointer ergonomics — raise interactive targets to ≥44px so
+ * toolbar buttons, icon buttons and inline controls are tappable. Mouse/
+ * trackpad pointers keep the compact desktop density.
+ * ========================================================================== */
+@media (pointer: coarse) {
+  .toolbar-btn,
+  .ui-iconbtn {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -368,5 +381,9 @@
 }
 .sheets-themed .fortune-context-menu-divider { background: var(--line) !important; }
 
-/* Hairline frame around the whole grid so the light canvas reads as paper */
-.sheets-themed .fortune-container { border: none !important; }
+/* Frame the whole grid so the light canvas reads as a deliberate sheet of
+ * paper resting on the dark desk: hairline edge + soft drop shadow. */
+.sheets-themed .fortune-container {
+  border: none !important;
+  box-shadow: inset 0 0 0 1px var(--line-strong), var(--elev-2);
+}

@@ -9,7 +9,7 @@ import { useFilesStore } from '../store/filesStore'
 import { useLocalFilesStore } from '../store/localFilesStore'
 import NewFileModal from './NewFileModal'
 import { importFromUrl, importFile } from '../lib/importFile'
-import { Button, IconButton, Input, Card, Tooltip } from './ui'
+import { Button, IconButton, Input, Card, Tooltip, useToast } from './ui'
 
 // ─── Token-aligned config ─────────────────────────────────────────────────────
 const CONFIG = {
@@ -74,6 +74,7 @@ export default function AppHome({ type }) {
   const cfg = CONFIG[type]
   const Icon = cfg.icon
   const navigate = useNavigate()
+  const { showToast, toast } = useToast()
   const { files, loading, fetchFiles, deleteFile, renameFile } = useFilesStore()
   const { files: localFiles, loading: localLoading, scanned, scan } = useLocalFilesStore()
   const [showNew, setShowNew] = useState(false)
@@ -93,7 +94,7 @@ export default function AppHome({ type }) {
     try {
       await importFile(file, navigate)
     } catch (err) {
-      alert(`Could not open ${file.name}: ${err.message}`)
+      showToast(`Could not open ${file.name}: ${err.message}`, 'error')
     } finally {
       setImporting(null)
     }
@@ -120,7 +121,7 @@ export default function AppHome({ type }) {
       await importFromUrl(file, navigate)
     } catch (e) {
       console.error(e)
-      alert(`Could not open ${file.name}: ${e.message}`)
+      showToast(`Could not open ${file.name}: ${e.message}`, 'error')
     } finally {
       setImporting(null)
     }
@@ -338,6 +339,7 @@ export default function AppHome({ type }) {
 
       {showNew && <NewFileModal onClose={() => setShowNew(false)} lockType={type} />}
       {menuOpen && <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(null)} />}
+      {toast}
     </div>
   )
 }

@@ -34,18 +34,19 @@ vi.mock('../shells/RequireAuth.jsx', () => ({
 import OfficeShell from '../shells/OfficeShell.jsx'
 
 describe('OfficeShell', () => {
-  it('renders the top nav with all four app tabs', async () => {
+  it('renders the canonical left-rail Sidebar with all four app links', async () => {
     await act(async () => {
       render(
-        <MemoryRouter initialEntries={['/docs']}>
+        <MemoryRouter initialEntries={['/sheets/abc123']}>
           <OfficeShell />
         </MemoryRouter>
       )
     })
-    expect(screen.getByTestId('nav-docs')).toBeTruthy()
-    expect(screen.getByTestId('nav-sheets')).toBeTruthy()
-    expect(screen.getByTestId('nav-slides')).toBeTruthy()
-    expect(screen.getByTestId('nav-pdf')).toBeTruthy()
+    // Canonical Layout/Sidebar nav — not the old divergent top-nav.
+    expect(screen.getByText('Docs')).toBeTruthy()
+    expect(screen.getByText('Sheets')).toBeTruthy()
+    expect(screen.getByText('Slides')).toBeTruthy()
+    expect(screen.getByText('PDF')).toBeTruthy()
   })
 
   it('deep-link /sheets/:id routes to SheetsEditor', async () => {
