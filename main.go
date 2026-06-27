@@ -25,6 +25,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/vul-os/vulos-apps/appsplatform"
+	"github.com/vul-os/vulos-apps/mcp"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=vX.Y.Z".
@@ -392,9 +393,10 @@ func mountAppsPlatform(cfg *config.Config, r *gin.Engine, store storage.Storage,
 	if err != nil {
 		return nil, err
 	}
+	adapter := apps.NewOfficeAdapter(store, authz)
 	disp := appsplatform.NewDispatcher(reg, appsplatform.ProductOffice)
 	h, err := appsplatform.NewHandler(appsplatform.MountConfig{
-		Adapter:    apps.NewOfficeAdapter(store, authz),
+		Adapter:    adapter,
 		Registry:   reg,
 		Dispatcher: disp,
 		Admin: func(req *http.Request) (string, bool, bool) {
@@ -411,7 +413,46 @@ func mountAppsPlatform(cfg *config.Config, r *gin.Engine, store storage.Storage,
 	// own auth (session for management, app token for runtime).
 	r.Any("/api/apps", gin.WrapH(h))
 	r.Any("/api/apps/*proxyPath", gin.WrapH(h))
+
+	// Mount the shared @vulos/apps MCP server over the SAME adapter, registry,
+	// and event emitter so any LLM/agent can operate Office over MCP. A failure
+	// here disables only MCP — the REST apps place stays up.
+	if err := mountMCP(r, adapter, reg, disp); err != nil {
+		log.Printf("[apps] MCP server disabled: %v", err)
+	}
 	return h, nil
+}
+
+// mountMCP wires the Vulos MCP server (github.com/vul-os/vulos-apps/mcp) into the
+// Gin router at /mcp. It is a different SHAPE over the EXACT seam the REST apps
+// platform already exposes: the SAME Office ProductAdapter (Act→tools,
+// Read→resources), the SAME app-token Registry (Bearer vat_, constant-time), and
+// the SAME dispatcher emitter (so MCP tool calls fan out like REST actions).
+//
+// Open-core: this ships in the OSS build and runs STANDALONE — self-host Office,
+// mint an app token, point an MCP agent at /mcp. The optional cloud aggregating
+// MCP gateway (mcp.MCPConfig.Gateway) is an env-gated seam the core never wires:
+// we leave it nil here, exactly as the apps registry leaves the cloud broker out
+// of the default build. The core never imports backend/integration/cloud for MCP.
+func mountMCP(r *gin.Engine, adapter appsplatform.ProductAdapter, reg appsplatform.Registry, disp *appsplatform.Dispatcher) error {
+	h, err := mcp.NewHandler(mcp.MCPConfig{
+		Adapter:  adapter,         // SAME ProductAdapter (per-file ACL honored in Act/Read)
+		Registry: reg,             // SAME vat_ token registry
+		Emit:     disp.EmitFunc(), // SAME event fan-out as REST actions
+		BasePath: "/mcp",
+		// Gateway: nil — standalone open-core; the cloud aggregation seam is not
+		// wired in the core build.
+	})
+	if err != nil {
+		return err
+	}
+	// Like the apps handler, this is a net/http ServeMux with absolute patterns
+	// under the base path; forward the whole /mcp subtree to it. It does its own
+	// app-token auth, so it intentionally bypasses Gin's session middleware.
+	r.Any("/mcp", gin.WrapH(h))
+	r.Any("/mcp/*proxyPath", gin.WrapH(h))
+	log.Printf("[apps] MCP server mounted at %s", h.BasePath)
+	return nil
 }
 
 // runMigrateCredential implements the `migrate-credential` subcommand.

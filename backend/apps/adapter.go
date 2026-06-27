@@ -37,6 +37,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vul-os/vulos-apps/appsplatform"
+	"github.com/vul-os/vulos-apps/mcp"
 )
 
 // OfficeAdapter implements appsplatform.ProductAdapter for Vulos Office.
@@ -51,8 +52,13 @@ func NewOfficeAdapter(store storage.Storage, authz *handlers.FileAuthz) *OfficeA
 	return &OfficeAdapter{store: store, authz: authz}
 }
 
-// compile-time assertion that the adapter satisfies the platform seam.
-var _ appsplatform.ProductAdapter = (*OfficeAdapter)(nil)
+// compile-time assertion that the adapter satisfies the platform seam and,
+// optionally, the MCP Descriptor seam (so an LLM/agent gets a correctly
+// described per-product MCP server — see MCPTools / MCPResources below).
+var (
+	_ appsplatform.ProductAdapter = (*OfficeAdapter)(nil)
+	_ mcp.Descriptor              = (*OfficeAdapter)(nil)
+)
 
 // Product reports that this adapter serves the Office product. The platform
 // lists and serves only apps that target "office".
@@ -113,6 +119,82 @@ func (a *OfficeAdapter) Read(ctx context.Context, app *appsplatform.App, req app
 		return a.documentMeta(req.Target)
 	default:
 		return nil, fmt.Errorf("office: unsupported read kind %q", req.Kind)
+	}
+}
+
+// ---- MCP Descriptor ---------------------------------------------------------
+//
+// The optional mcp.Descriptor seam PUBLISHES this adapter's surface to the Vulos
+// MCP layer so any LLM/agent can operate Office over MCP with a vat_ app token.
+// It is a different SHAPE over the EXACT same Act/Read seam the REST apps
+// platform uses — the same per-file ACL (FileAuthz, acting as the installing
+// owner), the same scopes — so an MCP tool call is access-checked identically to
+// a REST action. Tools mirror Act actions (apps:write); resources mirror Read
+// kinds (apps:read).
+
+// MCPTools returns the Act actions exposed as MCP tools. Every Office target is
+// a document id, so the document-scoped tools accept a "target" which is gated
+// through CanAccessTarget (FileAuthz) before Act runs.
+func (a *OfficeAdapter) MCPTools() []mcp.ToolSpec {
+	return []mcp.ToolSpec{
+		{
+			Action:        "document.create",
+			Description:   "Create a new Office document owned by the app's installer. type is doc|sheet|slide (default doc); for a doc, text is converted to paragraphs.",
+			AcceptsTarget: true,
+			InputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "name": {"type": "string", "description": "Document title (default \"Untitled\")."},
+    "type": {"type": "string", "enum": ["doc", "sheet", "slide"], "description": "Document type (default \"doc\")."},
+    "text": {"type": "string", "description": "Initial plain text for a doc; one paragraph per line."},
+    "content": {"type": "object", "description": "Optional pre-built ProseMirror/Tiptap content (overrides text)."}
+  }
+}`),
+		},
+		{
+			Action:        "document.append",
+			Description:   "Append a text block (one paragraph per line) to an existing rich-text doc. Requires target = the document id.",
+			AcceptsTarget: true,
+			InputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "text": {"type": "string", "description": "Text to append; one paragraph per line."}
+  },
+  "required": ["text"]
+}`),
+		},
+		{
+			Action:        "tool.run",
+			Description:   "Dispatch a registered tool/automation the app declared. The platform fans a tool.invoked event to the app's own runtime; it does not execute arbitrary code. Optional target is a document id for context.",
+			AcceptsTarget: true,
+			InputSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "tool": {"type": "string", "description": "Name of a tool the app declared in its slash commands."},
+    "input": {"description": "Tool-specific input forwarded to the app's runtime."}
+  },
+  "required": ["tool"]
+}`),
+		},
+	}
+}
+
+// MCPResources returns the Read kinds exposed as MCP resources. Each is
+// addressed by a vulos://office/<kind>[/<target>] URI and access-checked via the
+// same per-file ACL before Read runs.
+func (a *OfficeAdapter) MCPResources() []mcp.ResourceSpec {
+	return []mcp.ResourceSpec{
+		{
+			Kind:        "documents",
+			Name:        "Documents",
+			Description: "Metadata for every document the app's owner can access.",
+		},
+		{
+			Kind:          "document",
+			Name:          "Document",
+			Description:   "Metadata for one document, addressed by its id (vulos://office/document/<id>).",
+			AcceptsTarget: true,
+		},
 	}
 }
 
