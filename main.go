@@ -47,6 +47,10 @@ func main() {
 		runMigrateCredential(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrate(os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "version") {
 		fmt.Println(Version)
 		return

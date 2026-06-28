@@ -3,10 +3,10 @@
 # Triggers on:  push of a tag matching v* (e.g. v1.0.0, v1.2.3-rc.1)
 #
 # Jobs:
-#   build-and-test  — build frontend + backend, run all tests, cross-compile
-#                     the Go binary (linux/amd64 + linux/arm64), verify that
-#                     the tag version matches package.json, generate SHA-256
-#                     checksums, and upload artifacts.
+#   build-and-test  — build frontend + backend, run all tests, verify tag
+#                     matches both package.json and the binary --version,
+#                     cross-compile Go binaries (linux + darwin, amd64 + arm64),
+#                     generate SHA-256 checksums, and upload artifacts.
 #   check-npm-token — probe whether NPM_TOKEN is available (secrets cannot be
 #                     read in `if:` expressions directly).
 #   publish-npm     — publish @vulos/office-client to npm (gated on NPM_TOKEN).
@@ -50,18 +50,36 @@ jobs:
           cache: npm
           registry-url: 'https://registry.npmjs.org'
 
+      # ── Derive semver (strip leading 'v') ─────────────────────────────────────
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "semver=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       # ── Verify tag == package.json version ────────────────────────────────────
-      # Example: tag v1.2.3 must match "version": "1.2.3" so we never publish a
-      # mismatched package.
       - name: Check tag/package version match
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${{ steps.version.outputs.semver }}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
             echo "ERROR: package.json version ($PKG_VERSION) != tag ($TAG_VERSION)"
             exit 1
           fi
-          echo "Version check passed: $PKG_VERSION"
+          echo "package.json version check passed: $PKG_VERSION"
+
+      # ── Verify tag == binary --version ────────────────────────────────────────
+      - name: Verify tag matches binary version
+        run: |
+          VERSION="${{ steps.version.outputs.semver }}"
+          go build -ldflags "-X main.Version=${VERSION}" -o /tmp/vulos-office-check .
+          BIN_VER=$(/tmp/vulos-office-check --version)
+          if [ "${BIN_VER}" != "${VERSION}" ]; then
+            echo "ERROR: binary reports version '${BIN_VER}' but tag is '${VERSION}'"
+            exit 1
+          fi
+          echo "Binary version check passed: ${VERSION}"
 
       # ── Frontend: full build + library build ──────────────────────────────────
       - name: Install npm dependencies
@@ -73,7 +91,7 @@ jobs:
       - name: Run frontend tests
         run: npm test
 
-      # ── Go backend: tests + cross-compile ──────────────────────────────────────
+      # ── Go backend: tests + cross-compile ─────────────────────────────────────
       - name: Go test
         run: go test -short ./...
 
@@ -88,7 +106,7 @@ jobs:
         run: |
           go build \
             -trimpath \
-            -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" \
+            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.semver }}" \
             -o vulos-office-linux-amd64 \
             .
 
@@ -100,14 +118,38 @@ jobs:
         run: |
           go build \
             -trimpath \
-            -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" \
+            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.semver }}" \
             -o vulos-office-linux-arm64 \
+            .
+
+      - name: Cross-compile darwin/amd64
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.semver }}" \
+            -o vulos-office-darwin-amd64 \
+            .
+
+      - name: Cross-compile darwin/arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.Version=${{ steps.version.outputs.semver }}" \
+            -o vulos-office-darwin-arm64 \
             .
 
       # ── Archive dist-lib so the publish + release jobs can use it ─────────────
       - name: Archive dist-lib
         run: |
-          tar -czf office-client-${GITHUB_REF_NAME}-dist.tar.gz dist-lib/
+          tar -czf office-client-${{ steps.version.outputs.tag }}-dist.tar.gz dist-lib/
 
       # ── Checksums ─────────────────────────────────────────────────────────────
       - name: Generate SHA-256 checksums
@@ -115,6 +157,8 @@ jobs:
           sha256sum \
             vulos-office-linux-amd64 \
             vulos-office-linux-arm64 \
+            vulos-office-darwin-amd64 \
+            vulos-office-darwin-arm64 \
             > checksums.txt
           cat checksums.txt
 
@@ -126,6 +170,8 @@ jobs:
           path: |
             vulos-office-linux-amd64
             vulos-office-linux-arm64
+            vulos-office-darwin-amd64
+            vulos-office-darwin-arm64
             checksums.txt
           retention-days: 1
 
@@ -137,8 +183,6 @@ jobs:
           retention-days: 1
 
   # ── Probe for NPM_TOKEN before gating the publish job ─────────────────────────
-  # Secrets cannot be read in `if:` expressions directly — map to an output
-  # first, then condition the publish job on that output.
   check-npm-token:
     name: Check NPM_TOKEN availability
     needs: build-and-test
@@ -180,8 +224,6 @@ jobs:
         run: npm run build:lib
 
       - name: Publish
-        # --provenance attaches an OIDC-signed build provenance attestation to
-        # the published package. Requires id-token: write at the workflow level.
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -210,6 +252,8 @@ jobs:
           files: |
             vulos-office-linux-amd64
             vulos-office-linux-arm64
+            vulos-office-darwin-amd64
+            vulos-office-darwin-arm64
             checksums.txt
             office-client-${{ github.ref_name }}-dist.tar.gz
         env:
