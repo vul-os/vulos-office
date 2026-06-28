@@ -31,6 +31,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout sibling vulos-apps
+        run: git clone --depth 1 https://github.com/vul-os/vulos-apps ../vulos-apps
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -54,6 +57,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout sibling vulos-apps
+        run: git clone --depth 1 https://github.com/vul-os/vulos-apps ../vulos-apps
+
+      - name: Checkout sibling vulos-relay
+        run: git clone --depth 1 https://github.com/vul-os/vulos-relay ../vulos-relay
 
       - name: Set up Node
         uses: actions/setup-node@v4

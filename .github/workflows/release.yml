@@ -36,6 +36,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout sibling vulos-apps
+        run: git clone --depth 1 https://github.com/vul-os/vulos-apps ../vulos-apps
+
+      - name: Checkout sibling vulos-relay
+        run: git clone --depth 1 https://github.com/vul-os/vulos-relay ../vulos-relay
+
       # ── Toolchain ─────────────────────────────────────────────────────────────
       - name: Set up Go
         uses: actions/setup-go@v5
