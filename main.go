@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"vulos-office/backend/apikey"
 	"vulos-office/backend/apps"
 	"vulos-office/backend/billing"
 	"vulos-office/backend/config"
@@ -256,6 +257,38 @@ func main() {
 	// Docs export: PDF + DOCX server-side generation.
 	docsExportHandler := handlers.NewDocsExportHandler(store)
 	protected.GET("/files/:id/export", docsExportHandler.Export)
+
+	// ── Public /v1 developer API ──────────────────────────────────────────────
+	// A clean, documented JSON REST surface over the SAME document engine (storage,
+	// FileAuthz, billing gates, export services). It authenticates with EITHER the
+	// existing Office session OR a `Authorization: Bearer vk_…` API key validated
+	// via the cloud introspection seam (POST {CP}/api/keys/introspect). The key
+	// path is enabled only when VULOS_CP_BASE_URL is configured; otherwise /v1
+	// falls back to session-only auth (self-host unchanged). See docs/API.md.
+	keyCfg := apikey.FromEnv()
+	v1Introspector := apikey.NewIntrospector(keyCfg)
+	if v1Introspector != nil {
+		log.Printf("[v1] API-key introspection enabled (control plane %s)", keyCfg.BaseURL)
+	} else {
+		log.Printf("[v1] API-key path disabled (no %s); /v1 uses session auth only", apikey.EnvCPBaseURL)
+	}
+	v1Handler := handlers.NewV1Handler(store)
+	v1 := r.Group("/v1")
+	v1.Use(middleware.V1Auth(cfg, v1Introspector))
+	// Reads.
+	v1.GET("/documents", v1Handler.ListDocuments)
+	v1.GET("/documents/:id", v1Handler.GetDocument)
+	v1.GET("/documents/:id/content", v1Handler.GetContent)
+	v1.GET("/documents/:id/collaborators", v1Handler.ListCollaborators)
+	// Writes (rate-limited alongside the rest of the write surface).
+	if !*noRateLimitWrites {
+		v1.Use(middleware.NewTokenBucket(30, 10).Middleware())
+	}
+	v1.POST("/documents", v1Handler.CreateDocument)
+	v1.PATCH("/documents/:id", v1Handler.PatchDocument)
+	v1.DELETE("/documents/:id", v1Handler.DeleteDocument)
+	v1.POST("/documents/:id/export", v1Handler.ExportDocument)
+	v1.POST("/documents/:id/collaborators", v1Handler.ShareDocument)
 
 	uploadHandler := handlers.NewUploadHandler(cfg)
 	writes.POST("/upload", uploadHandler.Upload)
