@@ -68,7 +68,7 @@ jobs:
         run: cd ../vulos-apps/ui && npm install
 
       - name: Install and build sibling vulos-relay client
-        run: cd ../vulos-relay/client && npm install && npm run build:lib
+        run: cd ../vulos-relay/client && npm install && npm run build
 
       - name: Set up Node
         uses: actions/setup-node@v4
