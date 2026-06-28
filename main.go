@@ -52,6 +52,11 @@ func main() {
 		return
 	}
 
+	// CLI flags for the server process.
+	noRateLimitWrites := flag.Bool("no-rate-limit-writes", false,
+		"disable token-bucket rate limiting on write/collab endpoints (for testing or trusted environments)")
+	flag.Parse()
+
 	log.Printf("vulos-office %s starting", Version)
 	obs.Init()
 
@@ -143,6 +148,13 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"version": Version})
 	})
 
+	// Health check for load-balancers and status pages (no auth required).
+	// Returns 200 {"status":"ok","version":"<build-time version>"} when the
+	// server is alive. Does NOT probe the database; use /metrics for depth.
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": Version})
+	})
+
 	// Auth routes (unauthenticated)
 	authHandler := handlers.NewAuthHandler(cfg)
 	api := r.Group("/api")
@@ -155,6 +167,25 @@ func main() {
 	protected := api.Group("/")
 	if cfg.Auth.Enabled {
 		protected.Use(middleware.Auth(cfg))
+	}
+
+	// Write/collab sub-group — same auth middleware as protected, plus a
+	// token-bucket rate limiter on every state-changing endpoint.
+	//
+	// Default: 30-request burst, refills at 10 requests/second per client IP.
+	// This throttles rapid automated writes (bulk import, bot abuse) while
+	// leaving normal human editing (save-on-keyup, comment spam) unaffected.
+	// Disable with --no-rate-limit-writes for trusted internal tooling.
+	writes := api.Group("/")
+	if cfg.Auth.Enabled {
+		writes.Use(middleware.Auth(cfg))
+	}
+	if !*noRateLimitWrites {
+		writeLimiter := middleware.NewTokenBucket(30, 10)
+		writes.Use(writeLimiter.Middleware())
+		log.Printf("[rate-limit] write/collab endpoints: token-bucket cap=30 rate=10/s per IP")
+	} else {
+		log.Printf("[rate-limit] write/collab rate limiting disabled (--no-rate-limit-writes)")
 	}
 
 	// Standalone system surface: honest runtime facts for the self-hosted
@@ -177,46 +208,46 @@ func main() {
 	fileHandler := handlers.NewFileHandler(store)
 	protected.GET("/files", fileHandler.List)
 	protected.GET("/files/:id", fileHandler.Get)
-	protected.POST("/files", fileHandler.Create)
-	protected.PUT("/files/:id", fileHandler.Update)
-	protected.DELETE("/files/:id", fileHandler.Delete)
+	writes.POST("/files", fileHandler.Create)
+	writes.PUT("/files/:id", fileHandler.Update)
+	writes.DELETE("/files/:id", fileHandler.Delete)
 	// Per-file sharing (owner/admin grants or revokes another account's access).
-	protected.POST("/files/:id/share", fileHandler.Share)
+	writes.POST("/files/:id/share", fileHandler.Share)
 
 	// OFFICE-08: version history endpoints.
 	versionHandler := handlers.NewVersionHandler(store)
 	protected.GET("/files/:id/versions", versionHandler.ListVersions)
-	protected.POST("/files/:id/versions/:vid/restore", versionHandler.RestoreVersion)
+	writes.POST("/files/:id/versions/:vid/restore", versionHandler.RestoreVersion)
 
 	// OFFICE-28: activity feed + named snapshots.
 	activityHandler := handlers.NewActivityHandler(store)
 	protected.GET("/files/:id/activity", activityHandler.GetActivity)
-	protected.POST("/files/:id/versions", activityHandler.CreateNamedSnapshot)
-	protected.PUT("/files/:id/versions/:vid/label", activityHandler.LabelVersion)
+	writes.POST("/files/:id/versions", activityHandler.CreateNamedSnapshot)
+	writes.PUT("/files/:id/versions/:vid/label", activityHandler.LabelVersion)
 
 	// OFFICE-26: comments (anchored, threaded, resolvable).
 	commentHandler := handlers.NewCommentHandler(store)
 	protected.GET("/files/:id/comments", commentHandler.List)
-	protected.POST("/files/:id/comments", commentHandler.Create)
-	protected.PUT("/files/:id/comments/:cid", commentHandler.Update)
-	protected.DELETE("/files/:id/comments/:cid", commentHandler.Delete)
-	protected.POST("/files/:id/comments/:cid/replies", commentHandler.CreateReply)
-	protected.PUT("/files/:id/comments/:cid/replies/:rid", commentHandler.UpdateReply)
-	protected.DELETE("/files/:id/comments/:cid/replies/:rid", commentHandler.DeleteReply)
+	writes.POST("/files/:id/comments", commentHandler.Create)
+	writes.PUT("/files/:id/comments/:cid", commentHandler.Update)
+	writes.DELETE("/files/:id/comments/:cid", commentHandler.Delete)
+	writes.POST("/files/:id/comments/:cid/replies", commentHandler.CreateReply)
+	writes.PUT("/files/:id/comments/:cid/replies/:rid", commentHandler.UpdateReply)
+	writes.DELETE("/files/:id/comments/:cid/replies/:rid", commentHandler.DeleteReply)
 
 	// OFFICE-27: suggestion / track-changes mode.
 	suggestionHandler := handlers.NewSuggestionHandler(store)
 	protected.GET("/files/:id/suggestions", suggestionHandler.List)
-	protected.POST("/files/:id/suggestions", suggestionHandler.Create)
-	protected.PUT("/files/:id/suggestions/:sid", suggestionHandler.Update)
-	protected.DELETE("/files/:id/suggestions/:sid", suggestionHandler.Delete)
+	writes.POST("/files/:id/suggestions", suggestionHandler.Create)
+	writes.PUT("/files/:id/suggestions/:sid", suggestionHandler.Update)
+	writes.DELETE("/files/:id/suggestions/:sid", suggestionHandler.Delete)
 
 	// Docs export: PDF + DOCX server-side generation.
 	docsExportHandler := handlers.NewDocsExportHandler(store)
 	protected.GET("/files/:id/export", docsExportHandler.Export)
 
 	uploadHandler := handlers.NewUploadHandler(cfg)
-	protected.POST("/upload", uploadHandler.Upload)
+	writes.POST("/upload", uploadHandler.Upload)
 	api.GET("/uploads/:filename", uploadHandler.Serve)
 
 	// Local-files browse/serve exposes the SERVER PROCESS's own ~/Documents,
@@ -242,9 +273,9 @@ func main() {
 	envelopeHandler := handlers.NewEnvelopeHandler(store)
 	protected.GET("/envelopes", envelopeHandler.List)
 	protected.GET("/envelopes/:id", envelopeHandler.Get)
-	protected.POST("/envelopes", envelopeHandler.Create)
-	protected.PUT("/envelopes/:id", envelopeHandler.Update)
-	protected.DELETE("/envelopes/:id", envelopeHandler.Delete)
+	writes.POST("/envelopes", envelopeHandler.Create)
+	writes.PUT("/envelopes/:id", envelopeHandler.Update)
+	writes.DELETE("/envelopes/:id", envelopeHandler.Delete)
 
 	// OFFICE-42: signing link generation + scoped signer view.
 	// Send is protected (only the document owner can issue tokens).
@@ -254,7 +285,7 @@ func main() {
 	// "conflicting wildcard" panic — handlers distinguish tokens from envelope IDs
 	// by value format (tokens are long UUIDs; envelope IDs are short strings).
 	signingHandler := handlers.NewSigningHandler(store)
-	protected.POST("/sign/:id/send", signingHandler.Send)
+	writes.POST("/sign/:id/send", signingHandler.Send)
 	api.GET("/sign/:id", signingHandler.GetSignerView)
 	// OFFICE-43: signer ceremony submission.
 	api.POST("/sign/:id/complete", signingHandler.Complete)
@@ -262,8 +293,8 @@ func main() {
 	// OFFICE-45: multi-signer orchestration + reminders.
 	orchHandler := handlers.NewOrchestrationHandler(store)
 	api.GET("/sign/:id/status", orchHandler.Status)
-	protected.POST("/sign/:id/remind", orchHandler.Remind)
-	protected.POST("/sign/:id/cancel", orchHandler.Cancel)
+	writes.POST("/sign/:id/remind", orchHandler.Remind)
+	writes.POST("/sign/:id/cancel", orchHandler.Cancel)
 	api.POST("/sign/:id/decline", orchHandler.Decline)
 
 	// OFFICE-46: sealed PDF download + audit manifest.
@@ -284,7 +315,7 @@ func main() {
 
 	// Sheets XLSX import/export endpoints.
 	sheetsHandler := handlers.NewSheetsHandler(store)
-	protected.POST("/sheets/:id/import", sheetsHandler.Import)
+	writes.POST("/sheets/:id/import", sheetsHandler.Import)
 	protected.GET("/sheets/:id/export", sheetsHandler.Export)
 
 	// Calendar + Contacts APIs moved to the standalone Vulos Mail/PIM product
@@ -294,9 +325,9 @@ func main() {
 	// Admin: invite-token issuance (mint/list/revoke) + audit-log viewer.
 	// Every handler additionally enforces the admin scope (requireAdmin).
 	adminHandler := handlers.NewAdminHandler()
-	protected.POST("/admin/invites", adminHandler.MintInvite)
+	writes.POST("/admin/invites", adminHandler.MintInvite)
 	protected.GET("/admin/invites", adminHandler.ListInvites)
-	protected.DELETE("/admin/invites/:id", adminHandler.RevokeInvite)
+	writes.DELETE("/admin/invites/:id", adminHandler.RevokeInvite)
 	protected.GET("/admin/audit", adminHandler.ListAudit)
 
 	// NOTE: Vulos Spaces (presence + channels/DMs/threads/messages) moved to the
