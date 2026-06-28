@@ -152,24 +152,15 @@ export VULOS_OFFICE_JWT_SECRET="$(openssl rand -hex 32)"
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────┐
-│  React + Vite + Tailwind frontend  (JSX only)          │
-│  Docs · Sheets · Slides · PDF Signing                  │
-└────────────────────────────────────────────────────────┘
-                 │  embedded into the binary
-                 ▼
-┌────────────────────────────────────────────────────────┐
-│  Go backend (Gin)                                       │
-│  handlers · userauth · signing · storage · obs          │
-│                                                         │
-│  backend/seam  ── Identity · Entitlements · Usage ──┐   │
-│   standalone defaults (local, unlimited, no-op)     │   │
-└─────────────────────────────────────────────────────┼──┘
-                                                       │ optional
-                                                       ▼
-                                  backend/integration/cloud
-                                  (vulos-cloud adapter, opt-in)
+```mermaid
+flowchart TD
+    FE["React + Vite + Tailwind frontend (JSX only)<br/>Docs · Sheets · Slides · PDF Signing"]
+    BE["Go backend (Gin)<br/>handlers · userauth · signing · storage · obs"]
+    Seam["backend/seam — Identity · Entitlements · Usage<br/>standalone defaults (local, unlimited, no-op)"]
+    Cloud["backend/integration/cloud<br/>(vulos-cloud adapter, opt-in)"]
+    FE -->|"embedded into the binary"| BE
+    BE --> Seam
+    Seam -->|optional| Cloud
 ```
 
 The boundary between Office's core and any external control plane is a small set of Go interfaces in `backend/seam`. The composition root (`main.go`) wires the standalone defaults via `seam.NewStandaloneProvider(...)`:

@@ -66,14 +66,21 @@ The bundle installer writes the units below — `vulos-office` starts **after**
 (which performs the shared identity/fabric init). All three are pulled in by
 `vulos-bundle.target` (the all-up sentinel).
 
-```
-network-online.target
-  └─> [vulos-minio.service]       (optional — local-MinIO mode only)
-        └─> vulos-fabric.service  (shared fabric identity init — oneshot)
-              ├─> vulos.service         (OS backend, :8443)
-              ├─> vulos-mail.service    (mail server, :25/:587/:8444)
-              └─> vulos-office.service  (office backend, :8445)
-                    └─> vulos-bundle.target
+```mermaid
+flowchart TD
+    Net["network-online.target"]
+    MinIO["[vulos-minio.service]<br/>(optional — local-MinIO mode only)"]
+    Fabric["vulos-fabric.service<br/>(shared fabric identity init — oneshot)"]
+    OS["vulos.service (OS backend, :8443)"]
+    Mail["vulos-mail.service (mail server, :25/:587/:8444)"]
+    Office["vulos-office.service (office backend, :8445)"]
+    Bundle["vulos-bundle.target"]
+    Net --> MinIO
+    MinIO --> Fabric
+    Fabric --> OS
+    Fabric --> Mail
+    Fabric --> Office
+    Office --> Bundle
 ```
 
 The relevant ordering for office (from

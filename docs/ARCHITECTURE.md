@@ -20,30 +20,19 @@ Vulos Office is a collaborative document editing + e-signing service. It exposes
 
 ## Component Map
 
-```
-Browser clients (React SPA)
-   │ HTTP REST
-   ▼
-┌────────────────────────────────────┐
-│  Gin HTTP Server (main.go)         │
-│                                    │
-│  /api/files/*   → FileHandler      │
-│  /api/files/:id/versions → ...     │
-│  /api/sign/*    → SigningHandler   │
-│  /version       → build info       │
-│  /metrics       → obs.Handler()   │
-└──────────────────┬─────────────────┘
-                   │
-   ┌───────────────┼───────────────┐
-   │               │               │
-   ▼               ▼               ▼
-backend/        backend/       backend/
-storage/        signing/       fileacl/
-local, PG       crypto.go      (per-file ACLs)
-
-Observability:
-  backend/obs/ — vulos_office_* metrics + OTel
-  GET /metrics
+```mermaid
+flowchart TD
+    Browser["Browser clients (React SPA)"]
+    Server["Gin HTTP Server (main.go)<br/>/api/files/* → FileHandler<br/>/api/files/:id/versions → ...<br/>/api/sign/* → SigningHandler<br/>/version → build info<br/>/metrics → obs.Handler()"]
+    Storage["backend/storage/<br/>local, PG"]
+    Signing["backend/signing/<br/>crypto.go"]
+    Fileacl["backend/fileacl/<br/>(per-file ACLs)"]
+    Obs["Observability: backend/obs/<br/>vulos_office_* metrics + OTel<br/>GET /metrics"]
+    Browser -->|"HTTP REST"| Server
+    Server --> Storage
+    Server --> Signing
+    Server --> Fileacl
+    Server --> Obs
 ```
 
 ## Key Design Decisions
