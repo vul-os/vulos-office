@@ -220,12 +220,18 @@ func TestV1_Collaborators(t *testing.T) {
 		t.Fatalf("collaborators: %d", w.Code)
 	}
 	var cl struct {
-		Owner         string   `json:"owner"`
-		Collaborators []string `json:"collaborators"`
+		Owner         string `json:"owner"`
+		Collaborators []struct {
+			AccountID string `json:"account_id"`
+			Role      string `json:"role"`
+		} `json:"collaborators"`
 	}
 	decodeJSON(t, w.Body.Bytes(), &cl)
-	if len(cl.Collaborators) != 1 || cl.Collaborators[0] != "bob" {
-		t.Fatalf("expected [bob], got %+v", cl)
+	if len(cl.Collaborators) != 1 || cl.Collaborators[0].AccountID != "bob" {
+		t.Fatalf("expected [{bob editor}], got %+v", cl.Collaborators)
+	}
+	if cl.Collaborators[0].Role != "editor" {
+		t.Fatalf("expected default role 'editor', got %q", cl.Collaborators[0].Role)
 	}
 	// Revoke.
 	w = doReq(alice, http.MethodPost, "/v1/documents/"+id+"/collaborators", map[string]interface{}{"account": "bob", "revoke": true})

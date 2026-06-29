@@ -48,6 +48,8 @@ func (s *PostgresStorage) ACLStore() fileacl.Store {
 func (a *PostgresACLStore) migrate() {
 	// ON DELETE CASCADE ties the ACL lifecycle to the file: ownership/shares are
 	// removed in the same transaction as the file delete.
+	// The role column (editor/viewer) was added in the role-based ACL audit fix;
+	// existing rows default to 'editor' to preserve pre-role behaviour.
 	_, _ = a.pool.Exec(context.Background(), `
 		CREATE TABLE IF NOT EXISTS file_acl_owners (
 			file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
@@ -56,11 +58,15 @@ func (a *PostgresACLStore) migrate() {
 		CREATE TABLE IF NOT EXISTS file_acl_shares (
 			file_id    TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
 			account_id TEXT NOT NULL,
+			role       TEXT NOT NULL DEFAULT 'editor',
 			PRIMARY KEY (file_id, account_id)
 		);
 		CREATE INDEX IF NOT EXISTS idx_file_acl_owners_owner ON file_acl_owners(owner);
 		CREATE INDEX IF NOT EXISTS idx_file_acl_shares_account ON file_acl_shares(account_id);
 	`)
+	// Migration: add role column to existing deployments (idempotent).
+	_, _ = a.pool.Exec(context.Background(),
+		`ALTER TABLE file_acl_shares ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'editor'`)
 }
 
 func (a *PostgresACLStore) SetOwner(fileID, owner string) error {
@@ -84,39 +90,43 @@ func (a *PostgresACLStore) Get(fileID string) (fileacl.Record, bool, error) {
 	if err != nil {
 		return fileacl.Record{}, false, err
 	}
-	shares, err := a.listShares(fileID)
+	collabs, err := a.listCollaborators(fileID)
 	if err != nil {
 		return fileacl.Record{}, false, err
 	}
-	return fileacl.Record{FileID: fileID, Owner: owner, SharedWith: shares}, true, nil
+	return fileacl.Record{FileID: fileID, Owner: owner, Collaborators: collabs}, true, nil
 }
 
-func (a *PostgresACLStore) listShares(fileID string) ([]string, error) {
+func (a *PostgresACLStore) listCollaborators(fileID string) ([]fileacl.CollaboratorEntry, error) {
 	rows, err := a.pool.Query(context.Background(),
-		`SELECT account_id FROM file_acl_shares WHERE file_id = $1 ORDER BY account_id`, fileID)
+		`SELECT account_id, role FROM file_acl_shares WHERE file_id = $1 ORDER BY account_id`, fileID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []fileacl.CollaboratorEntry
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var id, role string
+		if err := rows.Scan(&id, &role); err != nil {
 			return nil, err
 		}
-		out = append(out, id)
+		out = append(out, fileacl.CollaboratorEntry{AccountID: id, Role: fileacl.Role(role)})
 	}
 	return out, rows.Err()
 }
 
 func (a *PostgresACLStore) Share(fileID, accountID string) error {
+	return a.ShareWithRole(fileID, accountID, fileacl.RoleEditor)
+}
+
+func (a *PostgresACLStore) ShareWithRole(fileID, accountID string, role fileacl.Role) error {
 	if fileID == "" || accountID == "" {
 		return fileacl.ErrEmptyFileID
 	}
 	_, err := a.pool.Exec(context.Background(),
-		`INSERT INTO file_acl_shares (file_id, account_id) VALUES ($1, $2)
-		 ON CONFLICT (file_id, account_id) DO NOTHING`,
-		fileID, accountID)
+		`INSERT INTO file_acl_shares (file_id, account_id, role) VALUES ($1, $2, $3)
+		 ON CONFLICT (file_id, account_id) DO UPDATE SET role = EXCLUDED.role`,
+		fileID, accountID, string(role))
 	return err
 }
 
@@ -149,12 +159,31 @@ func (a *PostgresACLStore) CanAccess(fileID, accountID string) (bool, bool, erro
 	if rec.Owner == accountID {
 		return true, true, nil
 	}
-	for _, s := range rec.SharedWith {
-		if s == accountID {
+	for _, c := range rec.Collaborators {
+		if c.AccountID == accountID {
 			return true, true, nil
 		}
 	}
 	return false, true, nil
+}
+
+func (a *PostgresACLStore) GetRole(fileID, accountID string) (fileacl.Role, bool, error) {
+	rec, ok, err := a.Get(fileID)
+	if err != nil {
+		return fileacl.RoleNone, false, err
+	}
+	if !ok {
+		return fileacl.RoleNone, false, nil
+	}
+	if rec.Owner == accountID {
+		return fileacl.RoleOwner, true, nil
+	}
+	for _, c := range rec.Collaborators {
+		if c.AccountID == accountID {
+			return c.Role, true, nil
+		}
+	}
+	return fileacl.RoleNone, false, nil
 }
 
 func (a *PostgresACLStore) AccessibleFileIDs(accountID string) (map[string]bool, error) {

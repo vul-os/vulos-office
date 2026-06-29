@@ -21,6 +21,7 @@ import (
 
 	"vulos-office/backend/audit"
 	"vulos-office/backend/billing"
+	"vulos-office/backend/fileacl"
 	"vulos-office/backend/models"
 	"vulos-office/backend/services/docs_export"
 	"vulos-office/backend/services/sheets_export"
@@ -190,7 +191,8 @@ type v1PatchRequest struct {
 // PatchDocument handles PATCH /v1/documents/:id — rename and/or replace content.
 func (h *V1Handler) PatchDocument(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Editors and owners may mutate content; viewers are read-only.
+	if !h.authz.requireEditor(c, id) {
 		return
 	}
 	account := requesterID(c)
@@ -257,7 +259,8 @@ func (h *V1Handler) PatchDocument(c *gin.Context) {
 // DeleteDocument handles DELETE /v1/documents/:id.
 func (h *V1Handler) DeleteDocument(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Only the owner (or an admin) may delete a document.
+	if !h.authz.requireOwner(c, id) {
 		return
 	}
 	if err := h.store.DeleteFile(id); err != nil {
@@ -428,28 +431,34 @@ func (h *V1Handler) ListCollaborators(c *gin.Context) {
 		v1err(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	shared := []string{}
 	owner := ""
+	collabs := []map[string]string{}
 	if ok {
 		owner = rec.Owner
-		if rec.SharedWith != nil {
-			shared = rec.SharedWith
+		for _, ce := range rec.Collaborators {
+			collabs = append(collabs, map[string]string{
+				"account_id": ce.AccountID,
+				"role":       string(ce.Role),
+			})
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"owner": owner, "collaborators": shared})
+	c.JSON(http.StatusOK, gin.H{"owner": owner, "collaborators": collabs})
 }
 
 // v1ShareRequest is the body for POST /v1/documents/:id/collaborators.
 type v1ShareRequest struct {
 	Account string `json:"account" binding:"required"`
-	Revoke  bool   `json:"revoke"`
+	Role    string `json:"role"`   // "editor" (default) or "viewer"
+	Revoke  bool   `json:"revoke"` // true to remove access
 }
 
 // ShareDocument handles POST /v1/documents/:id/collaborators — grant or revoke
-// another account's access. Reuses the SAME ACL store + audit trail as /api.
+// another account's access. Only the owner (or an admin) may manage collaborators.
+// Reuses the SAME ACL store + audit trail as /api.
 func (h *V1Handler) ShareDocument(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Only the owner may grant or revoke access.
+	if !h.authz.requireOwner(c, id) {
 		return
 	}
 	if _, err := h.store.GetFile(id); err != nil {
@@ -467,7 +476,15 @@ func (h *V1Handler) ShareDocument(c *gin.Context) {
 		err = h.authz.Store().Unshare(id, req.Account)
 		action = audit.ActionACLRevoke
 	} else {
-		err = h.authz.Store().Share(id, req.Account)
+		role := fileacl.Role(req.Role)
+		if role == fileacl.RoleNone {
+			role = fileacl.RoleEditor // default
+		}
+		if role != fileacl.RoleEditor && role != fileacl.RoleViewer {
+			v1err(c, http.StatusBadRequest, "role must be 'editor' or 'viewer'")
+			return
+		}
+		err = h.authz.Store().ShareWithRole(id, req.Account, role)
 	}
 	if err != nil {
 		v1err(c, http.StatusInternalServerError, err.Error())

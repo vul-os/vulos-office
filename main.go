@@ -170,7 +170,11 @@ func main() {
 	// Auth routes (unauthenticated)
 	authHandler := handlers.NewAuthHandler(cfg)
 	api := r.Group("/api")
-	api.POST("/auth/login", authHandler.Login)
+	// Rate-limit login: bcrypt on an unthrottled endpoint is an online brute-force
+	// oracle. 5 attempts / minute per IP blunts credential-stuffing while allowing
+	// legitimate users to retry after a typo. Matches the password-change limiter.
+	loginLimiter := middleware.NewRateLimiter(5, time.Minute)
+	api.POST("/auth/login", loginLimiter.Middleware(), authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 	api.POST("/auth/logout", authHandler.Logout)
 	api.GET("/auth/status", authHandler.Status)

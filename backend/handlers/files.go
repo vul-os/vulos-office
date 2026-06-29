@@ -7,6 +7,7 @@ import (
 
 	"vulos-office/backend/audit"
 	"vulos-office/backend/billing"
+	"vulos-office/backend/fileacl"
 	"vulos-office/backend/models"
 	"vulos-office/backend/storage"
 
@@ -140,7 +141,8 @@ func (h *FileHandler) Create(c *gin.Context) {
 
 func (h *FileHandler) Update(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Editors and owners may mutate content; viewers are read-only.
+	if !h.authz.requireEditor(c, id) {
 		return
 	}
 	account := requesterID(c)
@@ -205,7 +207,8 @@ func (h *FileHandler) Update(c *gin.Context) {
 
 func (h *FileHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Only the owner (or an admin) may delete a document.
+	if !h.authz.requireOwner(c, id) {
 		return
 	}
 	if err := h.store.DeleteFile(id); err != nil {
@@ -228,11 +231,14 @@ func (h *FileHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 
-// Share grants another account access to a file the caller owns (or admin).
-// POST /api/files/:id/share  { "account_id": "...", "revoke": false }
+// Share grants or revokes another account's access to a file.
+// Only the owner (or an admin) may manage collaborators.
+//
+// POST /api/files/:id/share  { "account_id": "...", "role": "editor"|"viewer", "revoke": false }
 func (h *FileHandler) Share(c *gin.Context) {
 	id := c.Param("id")
-	if !h.authz.require(c, id) {
+	// Only the owner may grant or revoke access.
+	if !h.authz.requireOwner(c, id) {
 		return
 	}
 	// Verify the file actually exists before recording a share.
@@ -242,7 +248,8 @@ func (h *FileHandler) Share(c *gin.Context) {
 	}
 	var req struct {
 		AccountID string `json:"account_id" binding:"required"`
-		Revoke    bool   `json:"revoke"`
+		Role      string `json:"role"`   // "editor" (default) or "viewer"
+		Revoke    bool   `json:"revoke"` // true to remove access
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -252,7 +259,15 @@ func (h *FileHandler) Share(c *gin.Context) {
 	if req.Revoke {
 		err = h.authz.Store().Unshare(id, req.AccountID)
 	} else {
-		err = h.authz.Store().Share(id, req.AccountID)
+		role := fileacl.Role(req.Role)
+		if role == fileacl.RoleNone {
+			role = fileacl.RoleEditor // default
+		}
+		if role != fileacl.RoleEditor && role != fileacl.RoleViewer {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role must be 'editor' or 'viewer'"})
+			return
+		}
+		err = h.authz.Store().ShareWithRole(id, req.AccountID, role)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

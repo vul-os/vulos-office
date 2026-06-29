@@ -167,6 +167,75 @@ func (a *FileAuthz) recordOwner(c *gin.Context, fileID string) error {
 	return a.acl.SetOwner(fileID, requesterID(c))
 }
 
+// requireOwner enforces that the requester is the file's owner (or an admin).
+// It first verifies basic access via require — returning false with 404 if the
+// caller has no access at all (no existence leak). When the caller does have
+// access but is not the owner, it returns 403 so the caller knows the operation
+// is not permitted at their privilege level.
+//
+// In single-user / auth-disabled mode this is a no-op beyond the base require().
+func (a *FileAuthz) requireOwner(c *gin.Context, fileID string) bool {
+	// Basic access check — returns 404 on full denial.
+	if !a.require(c, fileID) {
+		return false
+	}
+	// In single-user / auth-disabled mode, ownership enforcement is not
+	// meaningful (there is only one effective user).
+	if a == nil || !a.authEnabled {
+		return true
+	}
+	// Admins bypass ownership checks.
+	if c.GetBool(middleware.CtxIsAdmin) {
+		return true
+	}
+	role, ok, err := a.acl.GetRole(fileID, requesterID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ACL check failed"})
+		return false
+	}
+	// Unowned / legacy file (no ACL record): in multi-tenant mode require()
+	// already denied above; we should not reach here, but allow defensively.
+	if !ok {
+		return true
+	}
+	if role != fileacl.RoleOwner {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the document owner may perform this action"})
+		return false
+	}
+	return true
+}
+
+// requireEditor enforces that the requester has at least editor rights (editor
+// or owner, or admin). Viewers may read but not mutate content.
+// Returns false with 404 if the caller has no access, or 403 if they are a
+// read-only viewer.
+func (a *FileAuthz) requireEditor(c *gin.Context, fileID string) bool {
+	// Basic access check — returns 404 on full denial.
+	if !a.require(c, fileID) {
+		return false
+	}
+	if a == nil || !a.authEnabled {
+		return true
+	}
+	if c.GetBool(middleware.CtxIsAdmin) {
+		return true
+	}
+	role, ok, err := a.acl.GetRole(fileID, requesterID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ACL check failed"})
+		return false
+	}
+	if !ok {
+		// No ACL record (unowned/legacy): require() already passed, allow.
+		return true
+	}
+	if role == fileacl.RoleViewer {
+		c.JSON(http.StatusForbidden, gin.H{"error": "viewers cannot modify content"})
+		return false
+	}
+	return true
+}
+
 // CanAccessAs reports whether accountID may access fileID, WITHOUT a gin
 // context. It mirrors canAccess for non-HTTP callers that act on behalf of a
 // specific account and are never admins — notably the Apps & Bots platform
