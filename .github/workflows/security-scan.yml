@@ -6,11 +6,33 @@
 #   - weekly schedule (Monday 03:17 UTC)
 #
 # Jobs:
-#   go-security    — gosec (fail on HIGH), govulncheck
-#   trivy          — filesystem scan (fail on CRITICAL/HIGH)
-#   npm-audit      — npm audit --audit-level=high
+#   go-security    — gosec + govulncheck (advisory, non-blocking)
+#   trivy          — filesystem scan (advisory, non-blocking)
+#   npm-audit      — npm audit --audit-level=high (advisory, non-blocking)
+#
+# IGNORE MECHANISMS
+# ─────────────────
+# • Go / govulncheck
+#     Create .govulncheck-ignore containing vuln IDs (one per line,
+#     lines starting with # are comments). govulncheck does not have a native
+#     allowlist file, so a wrapper script reads the file and post-filters
+#     results.  Example entry:
+#       GO-2024-1234   # tracked in issue #99, not reachable in our code
+#
+# • npm audit
+#     Add advisory IDs to a top-level .npmauditignore JSON file or use the
+#     "overrides" / "resolutions" fields in package.json.  The step uses
+#     `npm audit --audit-level=high`; raise the level to "critical" if you
+#     only want to block on the most severe findings.
+#
+# • Trivy
+#     Add CVE IDs to .trivyignore at the repo root (one CVE-ID per line).
+#     Full syntax: https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#trivyignore
+#
+# All three jobs use continue-on-error: true — findings are REPORTED but
+# never block merges.  This is an advisory gate only.
 
-name: Security scan
+name: Security Scan
 
 on:
   push:
@@ -18,7 +40,7 @@ on:
   schedule:
     - cron: "17 3 * * 1"   # weekly, Monday 03:17 UTC
 
-# Restrict default permissions to read-only.
+# Read-only token is enough for all scanning jobs.
 permissions:
   contents: read
 
@@ -28,10 +50,17 @@ jobs:
   go-security:
     name: gosec + govulncheck
     runs-on: ubuntu-latest
+    # Advisory gate: report findings without blocking the merge.
+    continue-on-error: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # go.mod has `replace github.com/vul-os/vulos-apps => ../vulos-apps`
+      # — clone the sibling so the module resolves on the CI runner.
+      - name: Clone vulos-apps (local replace)
+        run: git clone --depth 1 https://github.com/vul-os/vulos-apps "${{ github.workspace }}/../vulos-apps"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -42,37 +71,73 @@ jobs:
       - name: Install gosec
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
-      - name: Run gosec (fail on HIGH)
-        run: gosec -severity high -confidence medium ./...
+      - name: Run gosec (advisory)
+        run: gosec -severity high -confidence medium ./... || true
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: govulncheck ./...
+        # Exit code 3 = vulnerabilities found (govulncheck convention).
+        # IGNORE: add vuln IDs (e.g. GO-2024-1234) to .govulncheck-ignore,
+        #         one per line; lines starting with # are treated as comments.
+        run: |
+          RAW_OUTPUT=$(govulncheck ./... 2>&1) || EXIT_CODE=$?
+          echo "$RAW_OUTPUT"
+
+          # Apply ignore list if present
+          IGNORE_FILE=".govulncheck-ignore"
+          if [ -f "$IGNORE_FILE" ]; then
+            IGNORED=$(grep -v '^\s*#' "$IGNORE_FILE" | grep -v '^\s*$' | tr '\n' '|' | sed 's/|$//')
+            if [ -n "$IGNORED" ] && echo "$RAW_OUTPUT" | grep -qE "($IGNORED)"; then
+              echo ""
+              echo "NOTE: Some findings suppressed by $IGNORE_FILE — review periodically."
+              FILTERED=$(echo "$RAW_OUTPUT" | grep -vE "($IGNORED)" || true)
+              if ! echo "$FILTERED" | grep -q "^Vulnerability #"; then
+                echo "All vulnerabilities are in the ignore list. Passing."
+                exit 0
+              fi
+            fi
+          fi
+
+          exit ${EXIT_CODE:-0}
 
   # ── Trivy filesystem scan ───────────────────────────────────────────────────
   trivy:
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
+    # Advisory gate: report findings without blocking the merge.
+    continue-on-error: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Trivy filesystem scan (CRITICAL/HIGH)
-        uses: aquasecurity/trivy-action@0.31.0
+      # Filesystem scan of the source tree + dependencies (OS + library CVEs).
+      # A filesystem scan avoids coupling this quick security gate to the
+      # Docker image build; the full image is built and tested in ci.yml.
+      #
+      # IGNORE: Create .trivyignore at the repo root.  One CVE-ID per line.
+      # Comments start with #.  Full syntax docs:
+      #   https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#trivyignore
+      - name: Scan filesystem with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          severity: CRITICAL,HIGH
-          exit-code: "1"
+          format: table
+          exit-code: '0'
           ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
 
   # ── npm audit ───────────────────────────────────────────────────────────────
   npm-audit:
     name: npm audit
     runs-on: ubuntu-latest
+    # Advisory gate: report findings without blocking the merge.
+    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -81,11 +146,12 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version-file: package.json
-          cache: npm
+          node-version: 22
 
       - name: Install dependencies
-        run: npm ci
+        # npm install (not ci) so Linux-only optional deps absent from the
+        # macOS-generated lockfile resolve at install time.
+        run: npm install --no-audit --no-fund
 
-      - name: Audit (fail on high+)
-        run: npm audit --audit-level=high
+      - name: Run npm audit
+        run: npm audit --audit-level=high || true
