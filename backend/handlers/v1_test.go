@@ -1,16 +1,35 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"vulos-office/backend/audit"
+	"vulos-office/backend/directory"
 	"vulos-office/backend/fileacl"
 	"vulos-office/backend/middleware"
 
 	"github.com/gin-gonic/gin"
 )
+
+// fakeResolver is an in-memory directory.Resolver for share-by-email tests.
+type fakeResolver struct {
+	byEmail map[string]directory.DiscoveryResult
+	err     error
+}
+
+func (f *fakeResolver) LookupEmail(_ context.Context, email string) (directory.DiscoveryResult, error) {
+	if f.err != nil {
+		return directory.DiscoveryResult{}, f.err
+	}
+	if r, ok := f.byEmail[strings.ToLower(strings.TrimSpace(email))]; ok {
+		return r, nil
+	}
+	return directory.DiscoveryResult{}, directory.ErrNotFound
+}
 
 // decodeJSON unmarshals a JSON response body into v, failing the test on error.
 func decodeJSON(t *testing.T, data []byte, v interface{}) {
@@ -240,5 +259,137 @@ func TestV1_Collaborators(t *testing.T) {
 	}
 	if w := doReq(bob, http.MethodGet, "/v1/documents/"+id, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("bob get after revoke: expected 404, got %d", w.Code)
+	}
+}
+
+// TestV1_ShareByEmail_CoCloud covers the primary co-cloud share-by-email path:
+// Alice shares with Bob (an account-only recipient resolved by email) and Bob
+// can then read the document by his account (email) id.
+func TestV1_ShareByEmail_CoCloud(t *testing.T) {
+	h, _ := newV1Handler()
+	// Co-cloud recipient: empty Server resolves as "this cell".
+	h.WithDirectory(&fakeResolver{byEmail: map[string]directory.DiscoveryResult{
+		"bob@example.com": {VulaID: "vula:ed25519:bob", Server: ""},
+	}}, "cell-1")
+
+	id := createV1DocAs(t, h, "alice@example.com", "doc", "x")
+	alice := v1Router(h, "alice@example.com", false)
+
+	// Share by email (mixed case + a role from the contract vocabulary).
+	w := doReq(alice, http.MethodPost, "/v1/documents/"+id+"/collaborators",
+		map[string]interface{}{"email": "Bob@Example.com", "role": "comment"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("share-by-email: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var sr struct {
+		OK      bool   `json:"ok"`
+		Grantee string `json:"grantee"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &sr)
+	if !sr.OK || sr.Grantee != "bob@example.com" {
+		t.Fatalf("expected grantee bob@example.com, got %+v", sr)
+	}
+
+	// Bob (keyed by his account email) can read.
+	bob := v1Router(h, "bob@example.com", false)
+	if w := doReq(bob, http.MethodGet, "/v1/documents/"+id, nil); w.Code != http.StatusOK {
+		t.Fatalf("bob get after email-share: expected 200, got %d", w.Code)
+	}
+
+	// The ACL records the commenter role.
+	w = doReq(alice, http.MethodGet, "/v1/documents/"+id+"/collaborators", nil)
+	var cl struct {
+		Collaborators []struct {
+			AccountID string `json:"account_id"`
+			Role      string `json:"role"`
+		} `json:"collaborators"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &cl)
+	if len(cl.Collaborators) != 1 || cl.Collaborators[0].AccountID != "bob@example.com" || cl.Collaborators[0].Role != "commenter" {
+		t.Fatalf("expected [{bob@example.com commenter}], got %+v", cl.Collaborators)
+	}
+}
+
+// TestV1_ShareByEmail_Remote covers the remote-recipient routing: a recipient
+// on another cell must NOT get a local ACL grant — the handler returns 409 with
+// a structured peershare routing payload.
+func TestV1_ShareByEmail_Remote(t *testing.T) {
+	h, _ := newV1Handler()
+	h.WithDirectory(&fakeResolver{byEmail: map[string]directory.DiscoveryResult{
+		"carol@other.example": {VulaID: "vula:ed25519:carol", Server: "other-cell.example"},
+	}}, "cell-1")
+
+	id := createV1DocAs(t, h, "alice@example.com", "doc", "x")
+	alice := v1Router(h, "alice@example.com", false)
+
+	w := doReq(alice, http.MethodPost, "/v1/documents/"+id+"/collaborators",
+		map[string]interface{}{"email": "carol@other.example", "role": "edit"})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("remote share: expected 409, got %d (%s)", w.Code, w.Body.String())
+	}
+	var rr struct {
+		Code      string `json:"code"`
+		Routing   string `json:"routing"`
+		Recipient struct {
+			VulaID string `json:"vula_id"`
+			Server string `json:"server"`
+		} `json:"recipient"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &rr)
+	if rr.Code != "remote_recipient" || rr.Routing != "peershare" {
+		t.Fatalf("expected remote_recipient/peershare routing, got %+v", rr)
+	}
+	if rr.Recipient.VulaID != "vula:ed25519:carol" || rr.Recipient.Server != "other-cell.example" {
+		t.Fatalf("expected resolved remote recipient echoed, got %+v", rr.Recipient)
+	}
+	// And NO local ACL grant happened: carol cannot read.
+	carol := v1Router(h, "carol@other.example", false)
+	if w := doReq(carol, http.MethodGet, "/v1/documents/"+id, nil); w.Code != http.StatusNotFound {
+		t.Fatalf("carol must not have local access; expected 404, got %d", w.Code)
+	}
+}
+
+// TestV1_ShareByEmail_NotFound: an email with no Vulos account returns 404.
+func TestV1_ShareByEmail_NotFound(t *testing.T) {
+	h, _ := newV1Handler()
+	h.WithDirectory(&fakeResolver{byEmail: map[string]directory.DiscoveryResult{}}, "cell-1")
+
+	id := createV1DocAs(t, h, "alice@example.com", "doc", "x")
+	alice := v1Router(h, "alice@example.com", false)
+	w := doReq(alice, http.MethodPost, "/v1/documents/"+id+"/collaborators",
+		map[string]interface{}{"email": "nobody@example.com"})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown email: expected 404, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestV1_ShareByEmail_RoleScoped (auth enabled): a commenter/viewer grant is
+// read-only — the recipient may GET but not PATCH content.
+func TestV1_ShareByEmail_RoleScoped(t *testing.T) {
+	st := newMemStorage()
+	acl := fileacl.NewNullStore()
+	h := NewV1HandlerWithDeps(st, NewFileAuthzWithAuth(acl, true), audit.NewNullStore())
+	h.WithDirectory(&fakeResolver{byEmail: map[string]directory.DiscoveryResult{
+		"bob@example.com": {VulaID: "vula:ed25519:bob", Server: ""},
+	}}, "cell-1")
+
+	id := createV1DocAs(t, h, "alice@example.com", "doc", "x")
+	alice := v1Router(h, "alice@example.com", false)
+	w := doReq(alice, http.MethodPost, "/v1/documents/"+id+"/collaborators",
+		map[string]interface{}{"email": "bob@example.com", "role": "comment"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("share: expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	bob := v1Router(h, "bob@example.com", false)
+	// Read allowed.
+	if w := doReq(bob, http.MethodGet, "/v1/documents/"+id, nil); w.Code != http.StatusOK {
+		t.Fatalf("commenter read: expected 200, got %d", w.Code)
+	}
+	// Content edit denied (commenter is not an editor).
+	w = doReq(bob, http.MethodPatch, "/v1/documents/"+id,
+		map[string]interface{}{"content": "mutated"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("commenter patch: expected 403, got %d (%s)", w.Code, w.Body.String())
 	}
 }

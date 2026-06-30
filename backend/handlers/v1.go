@@ -16,11 +16,14 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"vulos-office/backend/audit"
 	"vulos-office/backend/billing"
+	"vulos-office/backend/directory"
 	"vulos-office/backend/fileacl"
 	"vulos-office/backend/models"
 	"vulos-office/backend/services/docs_export"
@@ -37,17 +40,41 @@ type V1Handler struct {
 	store storage.Storage
 	authz *FileAuthz
 	audit audit.Store
+
+	// dir resolves a recipient EMAIL to a directory principal (Contract 2). It
+	// is nil in standalone / self-host mode (no control plane) — in which case
+	// the share API still accepts a raw account id for back-compat.
+	dir directory.Resolver
+	// localServer is THIS cell's server identity, used to decide co-cloud vs
+	// remote locality at share time (Contract 3).
+	localServer string
 }
 
 // NewV1Handler constructs a V1Handler over the process-wide authorizer + audit
-// store (same singletons the internal /api file handlers use).
+// store (same singletons the internal /api file handlers use). When a control
+// plane is configured (VULOS_CP_BASE_URL), the directory resolver is wired so
+// the share API can accept an email and resolve it to a principal.
 func NewV1Handler(store storage.Storage) *V1Handler {
-	return &V1Handler{store: store, authz: SharedFileAuthz(), audit: SharedAuditStore()}
+	h := &V1Handler{store: store, authz: SharedFileAuthz(), audit: SharedAuditStore()}
+	if r := directory.FromEnv(); r != nil {
+		h.dir = r
+		h.localServer = r.LocalServer
+	}
+	return h
 }
 
 // NewV1HandlerWithDeps builds a V1Handler over caller-supplied deps (tests).
 func NewV1HandlerWithDeps(store storage.Storage, authz *FileAuthz, aud audit.Store) *V1Handler {
 	return &V1Handler{store: store, authz: authz, audit: aud}
+}
+
+// WithDirectory wires an email->principal resolver and this cell's server
+// identity onto the handler (used by main() for the cloud build and by tests).
+// Returns the handler for chaining.
+func (h *V1Handler) WithDirectory(r directory.Resolver, localServer string) *V1Handler {
+	h.dir = r
+	h.localServer = localServer
+	return h
 }
 
 // v1Document is the public metadata representation of a document (no body).
@@ -446,15 +473,33 @@ func (h *V1Handler) ListCollaborators(c *gin.Context) {
 }
 
 // v1ShareRequest is the body for POST /v1/documents/:id/collaborators.
+//
+// Recipient identity may be given two ways (at least one required):
+//   - Email   — resolved to a principal via the directory (Contract 2). For a
+//     co-cloud account-only recipient this yields the local account to put in
+//     the ACL. This is the preferred form for share-by-email.
+//   - Account — a raw account id, kept for back-compat (the original contract).
+//
+// Role is the share-API vocabulary view/comment/edit (long forms accepted);
+// it maps onto the canonical fileacl roles.
 type v1ShareRequest struct {
-	Account string `json:"account" binding:"required"`
-	Role    string `json:"role"`   // "editor" (default) or "viewer"
-	Revoke  bool   `json:"revoke"` // true to remove access
+	Email   string `json:"email"`   // recipient email (resolved via directory)
+	Account string `json:"account"` // raw account id (back-compat)
+	Role    string `json:"role"`    // view | comment | edit (default: edit)
+	Revoke  bool   `json:"revoke"`  // true to remove access
 }
 
 // ShareDocument handles POST /v1/documents/:id/collaborators — grant or revoke
 // another account's access. Only the owner (or an admin) may manage collaborators.
 // Reuses the SAME ACL store + audit trail as /api.
+//
+// When the recipient is given by EMAIL, it is resolved through the directory
+// (Contract 2) and routed by locality (Contract 3):
+//   - CO-CLOUD recipient (account-only user hosted on this cell) → grant a
+//     role-scoped per-document ACL entry, exactly as a raw account would.
+//   - REMOTE recipient (box / other cell) → NOT a local ACL grant; respond 409
+//     with a structured payload telling the caller to share via the
+//     peering/peershare path (owned by the vulos peering agent).
 func (h *V1Handler) ShareDocument(c *gin.Context) {
 	id := c.Param("id")
 	// Only the owner may grant or revoke access.
@@ -470,26 +515,120 @@ func (h *V1Handler) ShareDocument(c *gin.Context) {
 		v1err(c, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Resolve the recipient principal. An email is resolved via the directory;
+	// a raw account id is used verbatim (back-compat). Exactly one is required.
+	grantee, remote, ok := h.resolveRecipient(c, &req)
+	if !ok {
+		return // resolveRecipient already wrote the response
+	}
+	if remote != nil {
+		// REMOTE recipient: the local ACL is the wrong path. Do NOT silently
+		// no-op — tell the caller to route through peering/peershare.
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "recipient is not on this cell; share via peering",
+			"code":    "remote_recipient",
+			"routing": "peershare",
+			"recipient": gin.H{
+				"vula_id":      remote.VulaID,
+				"server":       remote.Server,
+				"display_name": remote.DisplayName,
+			},
+		})
+		return
+	}
+
 	var err error
 	action := audit.ActionACLGrant
 	if req.Revoke {
-		err = h.authz.Store().Unshare(id, req.Account)
+		err = h.authz.Store().Unshare(id, grantee)
 		action = audit.ActionACLRevoke
 	} else {
-		role := fileacl.Role(req.Role)
+		role := fileacl.NormalizeRole(req.Role)
 		if role == fileacl.RoleNone {
-			role = fileacl.RoleEditor // default
+			if strings.TrimSpace(req.Role) != "" {
+				v1err(c, http.StatusBadRequest, "role must be 'view', 'comment', or 'edit'")
+				return
+			}
+			role = fileacl.RoleEditor // default (back-compat)
 		}
-		if role != fileacl.RoleEditor && role != fileacl.RoleViewer {
-			v1err(c, http.StatusBadRequest, "role must be 'editor' or 'viewer'")
+		if !fileacl.IsGrantableRole(role) {
+			v1err(c, http.StatusBadRequest, "role must be 'view', 'comment', or 'edit'")
 			return
 		}
-		err = h.authz.Store().ShareWithRole(id, req.Account, role)
+		err = h.authz.Store().ShareWithRole(id, grantee, role)
 	}
 	if err != nil {
 		v1err(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	recordAudit(h.audit, requesterID(c), action, id, "grantee="+req.Account)
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	recordAudit(h.audit, requesterID(c), action, id, "grantee="+grantee)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "grantee": grantee})
+}
+
+// resolveRecipient determines the ACL principal for a share request.
+//
+// Returns:
+//   - grantee — the account id to grant/revoke in the local ACL (set only when
+//     remote is nil and ok is true);
+//   - remote  — non-nil when the resolved recipient lives off this cell and the
+//     share must be routed via peershare instead of the local ACL;
+//   - ok      — false when the request was already answered with an error
+//     response (the caller must return immediately).
+//
+// Resolution rules:
+//   - req.Email set → resolve via the directory (Contract 2). A co-cloud result
+//     yields the recipient's account (its email; see note) as the grantee; a
+//     remote result is returned via `remote`.
+//   - else req.Account set → used verbatim (back-compat raw account id).
+//   - neither → 400.
+func (h *V1Handler) resolveRecipient(c *gin.Context, req *v1ShareRequest) (grantee string, remote *directory.DiscoveryResult, ok bool) {
+	email := strings.TrimSpace(req.Email)
+	account := strings.TrimSpace(req.Account)
+
+	if email == "" {
+		if account == "" {
+			v1err(c, http.StatusBadRequest, "one of 'email' or 'account' is required")
+			return "", nil, false
+		}
+		return account, nil, true
+	}
+
+	if h.dir == nil {
+		// No directory configured (standalone): cannot resolve an email. Fall
+		// back to a raw account id if one was also supplied; otherwise reject.
+		if account != "" {
+			return account, nil, true
+		}
+		v1err(c, http.StatusBadRequest, "email resolution is unavailable; supply 'account'")
+		return "", nil, false
+	}
+
+	res, err := h.dir.LookupEmail(c.Request.Context(), email)
+	switch {
+	case err == nil:
+		// resolved
+	case errors.Is(err, directory.ErrNotFound):
+		v1err(c, http.StatusNotFound, "no Vulos account for that email")
+		return "", nil, false
+	case errors.Is(err, directory.ErrUnavailable):
+		if account != "" {
+			return account, nil, true
+		}
+		v1err(c, http.StatusBadRequest, "email resolution is unavailable; supply 'account'")
+		return "", nil, false
+	default:
+		// Transport / control-plane failure: fail closed (do not grant).
+		log.Printf("[v1] directory lookup failed for email: %v", err)
+		v1err(c, http.StatusBadGateway, "directory lookup failed")
+		return "", nil, false
+	}
+
+	if !directory.CoCloud(res, h.localServer) {
+		return "", &res, true
+	}
+	// CO-CLOUD account-only recipient: the local ACL principal is the account's
+	// email (this deployment keys accounts by email — JWT subject == account
+	// email, matching the entitlements account_id=<email> contract).
+	return strings.ToLower(email), nil, true
 }
