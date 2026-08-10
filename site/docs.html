@@ -307,6 +307,75 @@ img{max-width:100%;display:block}
 }
 [data-theme="dark"] .markdown pre{background:#0E0B07}
 .markdown pre code{background:none;padding:0;font-size:13.5px;line-height:1.7;color:var(--ink)}
+
+/* ── Code block frame: language chip + copy, one card ─────────────────────── */
+.markdown .code{
+  margin:1.3em 0;border:1px solid var(--line-strong);border-radius:12px;
+  background:var(--sunk);box-shadow:var(--elev-1);overflow:hidden;min-width:0;
+}
+[data-theme="dark"] .markdown .code{background:#0E0B07}
+.markdown .code .bar{
+  display:flex;align-items:center;gap:10px;padding:7px 8px 7px 14px;
+  background:var(--sand);border-bottom:1px solid var(--line-strong);
+}
+.markdown .code .lang{
+  font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.markdown .code .sp{flex:1 1 auto}
+.markdown .code .copy{
+  font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em;
+  color:var(--ink-muted);background:transparent;border:1px solid var(--line-emph);
+  border-radius:7px;padding:4px 10px;cursor:pointer;
+  transition:color .15s ease,border-color .15s ease,background .15s ease;
+}
+.markdown .code .copy:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+.markdown .code .copy.done{color:var(--teal);border-color:var(--teal)}
+/* The pre is now the card's body: the frame owns the border, radius and shadow. */
+.markdown .code pre{
+  margin:0;border:none;border-radius:0;box-shadow:none;background:transparent;
+}
+
+/* ── highlight.js — tokens drawn from the same surface tints as the app rail.
+   Kept as variables so one set of .hljs-* rules serves both themes; a second
+   palette under [data-theme="dark"] is all that changes. ─────────────────── */
+:root{
+  --hl-comment:#8B8378; --hl-keyword:#AE3917; --hl-string:#17703F;
+  --hl-number:#8A5C05;  --hl-attr:#2A559E;    --hl-title:#5B3FA0;
+  --hl-meta:#6B655C;    --hl-punct:#6B655C;   --hl-link:#0E8B86;
+  --hl-add:#17703F;     --hl-add-bg:rgba(23,112,63,.10);
+  --hl-del:#B33045;     --hl-del-bg:rgba(179,48,69,.10);
+}
+[data-theme="dark"]{
+  --hl-comment:#8E8677; --hl-keyword:#FF8759; --hl-string:#4FC486;
+  --hl-number:#E9B84A;  --hl-attr:#6F9FE6;    --hl-title:#A487E0;
+  --hl-meta:#C3BAAC;    --hl-punct:#C3BAAC;   --hl-link:#2CB5AE;
+  --hl-add:#4FC486;     --hl-add-bg:rgba(79,196,134,.12);
+  --hl-del:#EC7183;     --hl-del-bg:rgba(236,113,131,.13);
+}
+.markdown .hljs{color:var(--ink);background:transparent}
+.markdown .hljs-comment,.markdown .hljs-quote{color:var(--hl-comment);font-style:italic}
+.markdown .hljs-keyword,.markdown .hljs-selector-tag,.markdown .hljs-literal,
+.markdown .hljs-section,.markdown .hljs-doctag,.markdown .hljs-name,
+.markdown .hljs-tag,.markdown .hljs-type{color:var(--hl-keyword)}
+.markdown .hljs-string,.markdown .hljs-regexp,.markdown .hljs-symbol{color:var(--hl-string)}
+.markdown .hljs-number,.markdown .hljs-bullet,.markdown .hljs-char.escape_,
+.markdown .hljs-selector-pseudo{color:var(--hl-number)}
+.markdown .hljs-attr,.markdown .hljs-attribute,.markdown .hljs-property,
+.markdown .hljs-variable,.markdown .hljs-template-variable,
+.markdown .hljs-selector-attr,.markdown .hljs-selector-id,
+.markdown .hljs-selector-class{color:var(--hl-attr)}
+.markdown .hljs-title,.markdown .hljs-title.class_,.markdown .hljs-title.function_,
+.markdown .hljs-function,.markdown .hljs-built_in{color:var(--hl-title)}
+.markdown .hljs-meta,.markdown .hljs-meta .hljs-keyword,
+.markdown .hljs-meta .hljs-string{color:var(--hl-meta)}
+.markdown .hljs-punctuation,.markdown .hljs-operator,
+.markdown .hljs-params,.markdown .hljs-subst{color:var(--hl-punct)}
+.markdown .hljs-link{color:var(--hl-link);text-decoration:underline;text-underline-offset:2px}
+.markdown .hljs-addition{color:var(--hl-add);background:var(--hl-add-bg);display:inline-block;width:100%}
+.markdown .hljs-deletion{color:var(--hl-del);background:var(--hl-del-bg);display:inline-block;width:100%}
+.markdown .hljs-emphasis{font-style:italic}
+.markdown .hljs-strong{font-weight:600}
 .markdown blockquote{
   margin:1.1em 0;padding:.5em 1.1em;border-left:3px solid var(--accent);
   background:var(--accent-tint);color:var(--ink-muted);border-radius:0 8px 8px 0;
@@ -415,6 +484,7 @@ img{max-width:100%;display:block}
 <!-- ═══ Footer ════════════════════════════════════════════════════════════ -->
 
 <script src="./assets/vendor/marked.umd.js"></script>
+<script src="./assets/vendor/highlight.min.js"></script>
 <script>
 // The site is served from the repo root; docs render straight from the repo's own markdown.
 const DOCS = [
@@ -499,6 +569,42 @@ function ensureMermaid(){
   });
   return mermaidLoadPromise;
 }
+/* ── Code blocks ──────────────────────────────────────────────────────────
+   Each fence becomes a card with a language chip and a copy button, and is
+   highlighted in place. A fence whose language has no grammar registered is
+   left as plain text rather than mislabelled — hljs.getLanguage() is the only
+   honest test, since an unhighlighted block is indistinguishable from a
+   highlighted one in the markup alone. */
+function enhanceCode(){
+  content.querySelectorAll('pre > code').forEach(code=>{
+    const pre = code.parentElement;
+    const cls = [...code.classList].find(c=>c.startsWith('language-')) || '';
+    const lang = cls.replace('language-','').toLowerCase();
+    if (lang === 'mermaid') return;                        // handled separately
+    const known = !!(lang && window.hljs && hljs.getLanguage(lang));
+    const box = document.createElement('div');
+    box.className = 'code';
+    box.innerHTML = '<div class="bar"><span class="lang"></span><span class="sp"></span>' +
+                    '<button class="copy" type="button">Copy</button></div>';
+    box.querySelector('.lang').textContent = known ? lang : (lang || 'text');
+    pre.replaceWith(box);
+    box.appendChild(pre);
+    if (window.hljs) {
+      try {
+        if (known) hljs.highlightElement(code);
+        else code.classList.add('hljs');
+      } catch(e){ /* leave the block unhighlighted rather than break the page */ }
+    }
+  });
+  content.querySelectorAll('.code .copy').forEach(btn=>btn.addEventListener('click', async ()=>{
+    try {
+      await navigator.clipboard.writeText(btn.closest('.code').querySelector('code').innerText);
+      btn.textContent='Copied'; btn.classList.add('done');
+      setTimeout(()=>{ btn.textContent='Copy'; btn.classList.remove('done'); }, 1600);
+    } catch(e){ btn.textContent='Ctrl+C'; setTimeout(()=>btn.textContent='Copy', 1600); }
+  }));
+}
+
 async function paintMermaid(){
   // Turn freshly-parsed ```mermaid fences into diagram containers, keeping the
   // original source on the node so a later theme toggle can repaint them.
@@ -537,6 +643,7 @@ async function load(slug){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const md = await res.text();
     content.innerHTML = marked.parse(md);
+    enhanceCode();
     content.querySelectorAll('img').forEach(img=>{
       const s=img.getAttribute('src')||'';
       if(/^https?:/i.test(s)) return;

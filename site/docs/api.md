@@ -69,7 +69,7 @@ keys: **one** endpoint, called the same way by every product.
 
 ### Request
 
-```
+```http
 POST {VULOS_CP_BASE_URL}/api/keys/introspect
 Content-Type: application/json
 X-Relay-Auth: <VULOS_CP_TOKEN>        # service auth (optional; omitted if unset)
@@ -244,7 +244,7 @@ POST /v1/documents/:id/export
 { "format": "docx" }
 ```
 
-```
+```http
 200 OK
 Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
 Content-Disposition: attachment; filename="Q3 Plan.docx"
@@ -264,7 +264,7 @@ body to put a warning in:
 |                     | `degraded` — something could not be carried. See the warnings.    |
 | `X-Export-Warnings` | A JSON array of plain-English strings. Present only when degraded. |
 
-```
+```http
 200 OK
 Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 Content-Disposition: attachment; filename="Q3.xlsx"
