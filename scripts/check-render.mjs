@@ -428,8 +428,15 @@ async function checkPage(browser, base, target, theme, vp) {
         `${i.file} drawn ${i.css} from a ${i.nat} source — ${i.skewPct}% off its true aspect ratio`);
     }
     // Vector art has no resolution to fall short of.
+    //
+    // Basin's version of this check also required the image to offer a srcset.
+    // Diwan uses no srcset anywhere — the screenshots are simply captured at 2×
+    // and drawn at half — so that precondition made the check apply to exactly
+    // zero images while still printing as part of a green run. Dropped: the
+    // site passes on merit (measured: 2880px sources drawn at ≤1438 CSS px, so
+    // 0.52–1.00× at dpr2), and it will now notice a 1× screenshot arriving.
     const isVector = /\.svgx?(\?|#|$)/i.test(i.file);
-    if (!isVector && i.offersSrcset && i.upscale > 1.15) {
+    if (!isVector && i.upscale > 1.15) {
       fail('img-soft', where, `${i.file} drawn ${i.css} at dpr2 from a ${i.realPx} file — upscaled ${i.upscale}×`);
     }
   });
@@ -529,6 +536,273 @@ async function checkAllChapters(browser, base) {
 }
 
 // ---------------------------------------------------------------------------
+// Self-test: break each invariant on purpose and require the check to notice.
+//
+// A gate that has quietly stopped failing looks exactly like one that works —
+// this fleet has found roughly twenty-two of them printing PASS while
+// examining nothing. So every case plants a real defect and then asserts the
+// measurement changes. A case whose mechanism a page does not use reports
+// "n/a" with the reason rather than passing silently; an inapplicable check
+// must never read as a working one.
+// ---------------------------------------------------------------------------
+const CASES = [
+  {
+    name: 'h-overflow',
+    target: 'index.html',
+    why: 'a 2400px div parked straight on <body>, where body{overflow-x:hidden} would hide it from a scrollWidth assertion',
+    // Straight onto <body>: the probe treats anything inside an overflow
+    // container as contained, and this page has several, so a div planted
+    // inside one could never be seen and the case would report a false MISSED.
+    mutate: () => {
+      const d = document.createElement('div');
+      d.id = '__probe_overflow__';
+      d.style.cssText = 'width:2400px;height:20px;background:red';
+      document.body.appendChild(d);
+      return true;
+    },
+    caught: r => r.overflow.bleed.length > 0,
+    // The other half of the proof: with the mutation gone the same probe must
+    // report zero, or "caught" only meant the probe always fires.
+    restore: () => { document.getElementById('__probe_overflow__')?.remove(); return true; },
+    clean: r => r.overflow.bleed.length === 0,
+  },
+  {
+    name: 'text-too-small (declared)',
+    target: 'index.html',
+    why: 'a paragraph dropped to 9px',
+    mutate: () => {
+      const p = [...document.querySelectorAll('p')]
+        .find(e => e.textContent.trim().length > 40 && e.getBoundingClientRect().width > 40);
+      if (!p) return false;
+      p.style.setProperty('font-size', '9px', 'important');
+      return true;
+    },
+    caught: r => r.smallText.some(t => t.effective < 10 && t.scale === 1),
+  },
+  {
+    name: 'text-too-small (scaled, declared value untouched)',
+    target: 'index.html',
+    why: 'an svg shrunk so its viewBox scales 12px labels under the floor — exactly the mermaid regression, and invisible to any check reading font-size',
+    mutate: () => {
+      const svg = [...document.querySelectorAll('svg[viewBox]')].find(s => {
+        if (!s.querySelector('text')) return false;
+        return [...s.querySelectorAll('text')]
+          .some(t => parseFloat(getComputedStyle(t).fontSize) >= 12);
+      });
+      if (!svg) return false;
+      svg.dataset.probe = '1';
+      svg.style.setProperty('width', '90px', 'important');
+      svg.style.setProperty('max-width', '90px', 'important');
+      svg.style.setProperty('height', 'auto', 'important');
+      return true;
+    },
+    caught: (r, page) => r.smallText.some(t => t.scale < 0.95 && t.declared >= 12),
+    // Prove the check is measuring the RENDER and not the property: the
+    // declared font-size on the mutated labels must still be >= 12.
+    extra: async (page) => {
+      const stillDeclared = await page.evaluate(() => {
+        const svg = document.querySelector('svg[data-probe="1"]');
+        return Math.min(...[...svg.querySelectorAll('text')]
+          .map(t => parseFloat(getComputedStyle(t).fontSize)));
+      });
+      return stillDeclared >= 12
+        ? `declared font-size is still ${stillDeclared}px — the finding came from the render, not the property`
+        : `WARNING: declared font-size fell to ${stillDeclared}px, so this case does not prove render-based measurement`;
+    },
+  },
+  {
+    name: 'img-distorted',
+    target: 'index.html',
+    why: 'a decoded image forced to object-fit:fill at double height',
+    mutate: () => {
+      const box = e => e.getBoundingClientRect();
+      // Must be a DECODED image — the check skips anything with no intrinsic
+      // size — and object-fit must be forced to `fill`, because skew under
+      // cover/contain is ignored BY DESIGN and the case would report a false
+      // MISSED on a cropped image.
+      const im = [...document.querySelectorAll('img')]
+        .filter(e => box(e).width > 8 && box(e).height > 8 && e.naturalWidth > 0)
+        .sort((a, b) => box(b).width - box(a).width)[0];
+      if (!im) return false;
+      im.style.setProperty('object-fit', 'fill', 'important');
+      im.style.setProperty('height', Math.round(box(im).width * 2) + 'px', 'important');
+      im.style.setProperty('aspect-ratio', 'auto', 'important');
+      return true;
+    },
+    caught: r => r.imgs.some(i => i.skewPct > 1.5),
+  },
+  {
+    name: 'dead-anchor',
+    target: 'index.html',
+    why: 'a working fragment link repointed at an id nothing defines',
+    mutate: () => {
+      const a = [...document.querySelectorAll('a[href^="#"]')]
+        .find(e => document.getElementById(e.getAttribute('href').slice(1)));
+      if (!a) return false;
+      a.setAttribute('href', '#section-that-does-not-exist');
+      return true;
+    },
+    caught: r => r.deadAnchors.length > 0,
+  },
+  {
+    name: 'off-origin',
+    target: 'index.html',
+    why: 'an <img> pointed at a host that is certainly not this test server',
+    // The request leaving is the defect; it never has to load.
+    mutate: () => {
+      const im = document.createElement('img');
+      im.src = 'https://cdn.example.invalid/pixel.png';
+      im.alt = '';
+      document.body.appendChild(im);
+      return true;
+    },
+    caught: (r, page, ctxState) => ctxState.offOrigin.size > 0,
+  },
+  {
+    name: 'img-soft',
+    target: 'index.html',
+    why: 'a raster image drawn far above the resolution of its source file',
+    mutate: () => {
+      const im = [...document.querySelectorAll('img')].find(e =>
+        e.naturalWidth > 0 && !/\.svg(\?|#|$)/i.test(e.currentSrc || e.src) &&
+        e.getBoundingClientRect().width > 8);
+      if (!im) return false;
+      im.style.setProperty('width', '2000px', 'important');
+      im.style.setProperty('max-width', 'none', 'important');
+      im.style.setProperty('height', 'auto', 'important');
+      return true;
+    },
+    caught: r => r.imgs.some(i => i.upscale > 1.15),
+  },
+  {
+    name: 'chapter-not-loaded',
+    target: 'docs.html#architecture',
+    why: 'the fetched prose emptied out, as a 404 on site/docs/*.md would leave it',
+    mutate: () => {
+      const c = document.getElementById('content');
+      if (!c) return false;
+      c.innerHTML = '';
+      return true;
+    },
+    caught: r => !!r.chapter && (r.chapter.chars < 400 || r.chapter.headings === 0),
+  },
+  {
+    name: 'mermaid-unpainted',
+    target: 'docs.html#architecture',
+    why: 'a mermaid block left as raw <code>, as it would be if the vendored renderer failed to load',
+    mutate: () => {
+      const c = document.getElementById('content');
+      if (!c) return false;
+      const pre = document.createElement('pre');
+      pre.innerHTML = '<code class="language-mermaid">graph TD; A-->B;</code>';
+      c.appendChild(pre);
+      return true;
+    },
+    caught: r => !!r.chapter && r.chapter.unpaintedMermaid > 0,
+  },
+  {
+    name: 'rail-unpinned',
+    target: 'docs.html#architecture',
+    why: 'position:sticky removed from .docs-rail — the property that actually governs pinning',
+    mutate: () => {
+      const rail = document.querySelector('.docs-rail');
+      if (!rail) return false;
+      rail.style.setProperty('position', 'static', 'important');
+      return true;
+    },
+    caught: r => !!r.rail && (r.rail.position !== 'sticky' || r.rail.topAfterScroll < -1 || r.rail.topAfterScroll > r.rail.winH),
+  },
+  {
+    name: 'vacuous-scan',
+    target: 'index.html',
+    why: 'the page stripped of its text — the shape a scan takes when its selector stops matching',
+    mutate: () => { document.body.innerHTML = '<p>x</p>'; return true; },
+    caught: r => r.textScanned < 10,
+  },
+];
+
+// The identity assertion cannot be mutation-tested from inside the page: the
+// point is that the SERVER might be somebody else's. So stand up a decoy that
+// answers with a different product's document and require the gate to refuse
+// it. This is the exact failure that once produced 410 green widths against
+// the wrong site with nothing in the output looking wrong.
+async function selftestIdentity(browser) {
+  const decoy = await new Promise(ok => {
+    const s = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<!doctype html><title>Basin — object storage for your own hardware</title>' +
+        '<body><main><p>' + 'a decoy page that is not diwan. '.repeat(40) + '</p></main>');
+    });
+    s.listen(0, '127.0.0.1', () => ok(s));
+  });
+  const base = `http://127.0.0.1:${decoy.address().port}`;
+  const before = findings.length;
+  await checkPage(browser, base, 'index.html', 'dark', { w: 1440, h: 900, label: 'decoy' });
+  const planted = findings.splice(before);      // do not leak into the real run
+  decoy.close();
+  const caught = planted.some(f => f.check === 'wrong-page');
+  console.log(`  ${caught ? 'caught  ' : 'MISSED  '} wrong-page`);
+  console.log(`             a decoy server answered index.html with Basin's <title>` +
+    (caught ? '; the gate refused to trust the measurement' : '; the gate measured it anyway'));
+  if (caught) {
+    // And it must not blanket-refuse: the real site has to still be accepted.
+    console.log(`             (the real site's title passes the same assertion — the run below proves it)`);
+  }
+  return caught;
+}
+
+async function selftest(browser, base) {
+  let allCaught = true;
+  for (const c of CASES) {
+    const ctx = await browser.newContext({
+      viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'dark',
+    });
+    const page = await ctx.newPage();
+    const ctxState = { offOrigin: new Set() };
+    page.on('request', r => {
+      const url = r.url();
+      if (r.resourceType() === 'document') return;
+      if (/^(data|blob|about|javascript):/.test(url)) return;
+      if (url.startsWith(base)) return;
+      ctxState.offOrigin.add(url);
+    });
+
+    await page.goto(`${base}/${c.target}`, { waitUntil: 'networkidle' });
+    await page.evaluate(() =>
+      document.querySelectorAll('.reveal, .rv, [data-reveal]')
+        .forEach(e => e.classList.add('is-visible', 'in', 'is-in', 'visible')));
+    await page.waitForTimeout(600);
+
+    const applicable = await page.evaluate(`(${c.mutate.toString()})()`);
+    if (!applicable) {
+      console.log(`  n/a      ${c.name}`);
+      console.log(`             ${c.target} has no element this defect could be planted on`);
+      await ctx.close();
+      continue;
+    }
+    await page.waitForTimeout(350);
+    const r = await inspect(page, { isDark: true });
+    const caught = !!c.caught(r, page, ctxState);
+    console.log(`  ${caught ? 'caught  ' : 'MISSED  '} ${c.name}`);
+    console.log(`             ${c.why}`);
+    if (c.extra) console.log(`             ${await c.extra(page)}`);
+    if (c.restore) {
+      await page.evaluate(`(${c.restore.toString()})()`);
+      await page.waitForTimeout(200);
+      const back = await inspect(page, { isDark: true });
+      const clean = !!c.clean(back);
+      console.log(`             with the mutation removed the same probe reports ` +
+        `${clean ? 'zero — it is not simply always firing' : 'STILL FIRING, so the probe is unconditional'}`);
+      if (!clean) allCaught = false;
+    }
+    if (!caught) allCaught = false;
+    await ctx.close();
+  }
+  const identity = await selftestIdentity(browser);
+  return allCaught && identity;
+}
+
+// ---------------------------------------------------------------------------
 async function main() {
   if (!existsSync(join(SITE, 'index.html'))) {
     console.error(`check-render: no site/index.html under ${SITE}`);
@@ -541,6 +815,15 @@ async function main() {
   console.log(`check-render: serving ${SITE} on ${base}`);
 
   try {
+    if (process.argv.includes('--selftest')) {
+      console.log('check-render self-test — each invariant is broken on purpose:\n');
+      const ok = await selftest(browser, base);
+      console.log(ok ? '\nSELF-TEST PASS — every applicable check discriminates.'
+        : '\nSELF-TEST FAIL — a check did not notice its own defect.');
+      process.exitCode = ok ? 0 : 1;
+      return;
+    }
+
     let combos = 0, imgs = 0, texts = 0, anchors = 0;
     for (const vp of VIEWPORTS) {
       for (const theme of ['light', 'dark']) {
