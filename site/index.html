@@ -370,7 +370,32 @@ h2.head{
   padding:44px;box-shadow:var(--elev-1);
 }
 @media(max-width:700px){.collab{padding:26px}}
-.diagram{max-width:680px;margin:0 auto 36px;width:100%;display:block}
+/* The diagram scrolls sideways inside this box rather than being scaled down to
+   fit it. It used to be width:100% inside a 680px cap, which meant the browser
+   shrank the whole drawing — text with it — to whatever the column allowed: at
+   320px that was a scale of 0.309, turning the 12px labels into 3.7px. Nothing
+   in the CSS said 3.7px, which is why it survived a hand review; the same
+   mechanism, in mermaid's useMaxWidth, had already done it twice on the docs
+   page. The drawing now keeps its natural size and the reader pans.
+   min-width:0 keeps the box from claiming the drawing's width as its own floor
+   and pushing the whole page sideways instead. */
+.diagram-scroll{
+  max-width:680px;margin:0 auto 36px;overflow-x:auto;min-width:0;
+  overscroll-behavior-x:contain;
+  /* Centre a drawing narrower than the box, never one that is wider:
+     margin-inline:auto centres by overhanging BOTH edges, and the left overhang
+     sits before the scroll origin where it can never be scrolled back to.
+     "safe center" degrades to flex-start exactly when centring would overflow;
+     the plain declaration before it is the fallback for engines that drop the
+     safe keyword. */
+  display:flex;justify-content:flex-start;justify-content:safe center;
+}
+/* A drawing wider than its box is only obviously pannable if the scrollbar can
+   be seen, and macOS overlay scrollbars cannot. */
+.diagram-scroll::-webkit-scrollbar{height:10px}
+.diagram-scroll::-webkit-scrollbar-thumb{background:var(--line-emph);border-radius:6px}
+.diagram-scroll::-webkit-scrollbar-track{background:transparent}
+.diagram{width:680px;max-width:none;height:auto;flex:0 0 auto;display:block}
 .diagram .peer-box{fill:var(--canvas);stroke:var(--line-strong);stroke-width:1}
 .diagram .peer-lbl{fill:var(--ink);font-family:var(--sans);font-size:12.5px;font-weight:600}
 .diagram .peer-sub{fill:var(--ink-faint);font-family:var(--mono);font-size:12px;letter-spacing:.06em}
@@ -714,6 +739,7 @@ h2.head{
     <p class="lead">Real-time editing that no server can read. Peers converge with no authority in the middle — because edits are conflict-free, and the room key never leaves your browser.</p>
 
     <div class="collab">
+      <div class="diagram-scroll">
       <svg class="diagram" viewBox="0 0 680 316" role="img" aria-label="Diagram: three peers exchange end-to-end-encrypted CRDT updates directly with one another. A content-blind relay sits below, drawn dashed, used only as a hard-NAT fallback. There is no central document server.">
         <!-- direct peer-to-peer edges -->
         <path class="edge" d="M150 92 L340 58 L530 92"/>
@@ -742,6 +768,7 @@ h2.head{
         <text class="relay-lbl" x="340" y="301" text-anchor="middle">CONTENT-BLIND RELAY</text>
         <text class="relay-lbl" x="444" y="301">HARD-NAT FALLBACK ONLY</text>
       </svg>
+      </div>
 
       <div class="cols3">
         <div>
