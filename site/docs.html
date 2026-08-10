@@ -459,16 +459,6 @@ img{max-width:100%;display:block}
   .vulos-foot { display: inline-flex; align-items: center; gap: 9px; font-size: 13.5px; line-height: 1.45; text-decoration: none; color: inherit; opacity: .85; transition: opacity .15s ease; }
   .vulos-foot:hover { opacity: 1; text-decoration: none; }
   .vulos-foot img { display: block; width: 18px; height: 18px; border-radius: 5px; flex: 0 0 auto; }
-
-  /* Dark-ground correction for the mark above. vulos-logo.png is flat #2E383A
-     on transparency — ink drawn for paper — so composited on this surface it
-     measures about 1.3:1 and reads as a smudge, not as a dimmed logo. The
-     artwork carries its whole shape in the alpha channel, so brightness(0)
-     invert(1) recolours it to the surface's foreground with the glyph intact,
-     and the opacity holds it at the same secondary weight the light theme
-     gives it. Styling only: the chrome markup stays byte-identical suite-wide. */
-  :root[data-theme="dark"] .vulos-home img,
-  :root[data-theme="dark"] .vulos-foot img { filter: brightness(0) invert(1); opacity: .66; }
 </style>
 </head>
 <body>
@@ -799,9 +789,17 @@ function current(){ return (location.hash||'').replace('#','') || DOCS[0].slug; 
 var docsToc = document.getElementById('docsToc');
 var tocSpy = null;
 
+/* GitHub's rule, character for character: lowercase, drop everything that is
+   not a word character / space / hyphen, then map each REMAINING space to one
+   hyphen. Collapsing runs of whitespace instead (\s+) looks equivalent and is
+   not: "## 8. Import & Export" loses the "&" and keeps the two spaces around
+   it, so GitHub mints "8-import--export" and a \s+ slugifier mints
+   "8-import-export". Every cross-reference in these docs is written against
+   GitHub's anchors, because that is where the markdown is read first — so the
+   one link in USER-GUIDE.md pointing at #8-import--export landed on nothing. */
 function slugifyHeading(text, seen){
   var base = String(text).toLowerCase().trim()
-    .replace(/[^\w\s-]/g, '').replace(/\s+/g, '-') || 'section';
+    .replace(/[^\w\s-]/g, '').replace(/\s/g, '-') || 'section';
   var n = seen.get(base) || 0;
   seen.set(base, n + 1);
   return n ? base + '-' + n : base;
