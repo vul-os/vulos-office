@@ -115,9 +115,17 @@ body{
   margin:0;background:var(--canvas);color:var(--ink);
   font-family:var(--sans);font-size:16.5px;line-height:1.6;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-  /* clip, not hidden: a non-visible overflow-x forces overflow-y to auto, which
-     makes body a scroll container and silently kills position:sticky on the
-     rail inside it. clip trims sideways bleed without that side effect. */
+  /* clip, not hidden. Commit 51549cf claimed hidden was killing the sticky
+     rail — overflow-x:hidden forcing overflow-y:auto, making body a scroll
+     container. That rationale is wrong: mutating this back to hidden leaves
+     the rail pinned. What actually governs pinning is position:sticky on
+     .docs-rail; set that to static and the rail lands at -2897.
+     clip is still the right value, for the reason clip exists: hidden makes
+     the box a scroll container, so programmatic scrolling and anchor jumps
+     can shift content sideways into an area with no scrollbar to bring it
+     back. clip does not. Either way this only hides sideways bleed rather
+     than fixing it, which is why scripts/check-render.mjs measures overflow
+     geometrically instead of trusting scrollWidth here. */
   overflow-x:clip;
 }
 /* A fine paper grain over everything — printed matter, not a screen. */
