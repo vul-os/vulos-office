@@ -289,3 +289,57 @@ jobs:
 
       - name: Published docs are in sync with their sources
         run: node scripts/sync-site-docs.mjs --check
+
+  # ── site/ render gate ───────────────────────────────────────────────────────
+  # The landing and the docs page, loaded in a real browser at eight widths in
+  # both colour schemes, plus every docs chapter at 320 and 1440. It measures
+  # what static inspection cannot: the size text is actually DRAWN at after any
+  # transform, elements crossing the viewport edge, distorted or upscaled
+  # images, dead fragment links, chapters whose prose failed to fetch, and any
+  # subresource fetched off-origin.
+  #
+  # Two invocations, both of which must pass. `--selftest` runs first and
+  # deliberately breaks each invariant, because a gate that has quietly stopped
+  # failing looks exactly like one that works — this suite has found roughly
+  # twenty-two checks printing PASS while examining nothing. If the self-test
+  # cannot make the gate go red, the gate's green is worthless and the job stops
+  # before the real run can report it.
+  #
+  # No `|| true`, no `continue-on-error`, and neither command is piped into
+  # anything: a pipeline would report the exit status of the LAST command and
+  # throw the gate's away.
+  site-render:
+    name: site/ renders correctly
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # diwan is a Go repo with no root package.json, so playwright comes from
+      # web/, which already depends on it for the E2E suites. The gate resolves
+      # it through PLAYWRIGHT_NODE_MODULES rather than a bare import, since a
+      # bare specifier would resolve from scripts/ and find nothing.
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Prove the render gate can fail
+        run: node scripts/check-render.mjs --selftest
+        env:
+          PLAYWRIGHT_NODE_MODULES: ${{ github.workspace }}/web/node_modules
+
+      - name: Render gate
+        run: node scripts/check-render.mjs
+        env:
+          PLAYWRIGHT_NODE_MODULES: ${{ github.workspace }}/web/node_modules
