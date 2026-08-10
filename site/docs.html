@@ -426,10 +426,33 @@ img{max-width:100%;display:block}
 .markdown td{color:var(--ink-muted)}
 .markdown img{border-radius:10px;margin:1.1em 0;border:1px solid var(--line-strong);box-shadow:var(--elev-1)}
 .markdown hr{border:none;border-top:1px solid var(--line);margin:2.2em 0}
+/* The diagram scrolls sideways inside this box rather than being scaled down to
+   fit it. mermaid's useMaxWidth put a max-width on the svg equal to its natural
+   width, so the browser shrank the whole drawing — text included — to whatever
+   the column allowed: the Component Map is 925px of drawing, which at 390px
+   meant a scale of 0.34 and a 15px label rendering at 5px. The scroll box was
+   already here and could never scroll, because the svg had been made to fit.
+   min-width:0 keeps it from claiming the drawing's width as its own floor, the
+   grid child default that would push the whole page sideways instead. */
 .markdown .mermaid{
   background:var(--paper);border:1px solid var(--line);border-radius:12px;
-  padding:20px;margin:1.3em 0;text-align:center;overflow-x:auto;box-shadow:var(--elev-1);
+  padding:20px;margin:1.3em 0;overflow-x:auto;box-shadow:var(--elev-1);
+  min-width:0;overscroll-behavior-x:contain;
+  /* Centre a diagram narrower than the box, but never centre one that is wider.
+     text-align:center and margin-inline:auto both centre by overhanging BOTH
+     edges, and the overhang past the left edge sits before the scroll origin,
+     so it cannot be scrolled back to — at 390px that left two thirds of the
+     Component Map permanently unreachable. "safe center" degrades to flex-start
+     exactly when centring would overflow; the unprefixed declaration before it
+     is the fallback for engines that drop the safe keyword. */
+  display:flex;justify-content:flex-start;justify-content:safe center;
 }
+.markdown .mermaid svg{max-width:none;height:auto;flex:0 0 auto}
+/* A diagram wider than its box is only obviously pannable if the scrollbar is
+   visible, and the overlay scrollbars macOS defaults to are not. */
+.markdown .mermaid::-webkit-scrollbar{height:10px}
+.markdown .mermaid::-webkit-scrollbar-thumb{background:var(--line-emph);border-radius:6px}
+.markdown .mermaid::-webkit-scrollbar-track{background:transparent}
 
 /* ══ Footer ═════════════════════════════════════════════════════════════════ */
 .foot{border-top:1px solid var(--line);padding:40px 0 60px}
@@ -591,15 +614,20 @@ const MERMAID_FONT = "'Schibsted Grotesk Variable', system-ui, sans-serif";
    into the markdown cannot follow a theme toggle — which is exactly how these
    diagrams ended up rendering near-black boxes on light paper. */
 const MERMAID_CLASSES = {
+  /* Strokes are deliberately stronger than the --line-* tokens the prose uses.
+     A rule between paragraphs only has to be found; a node border has to hold a
+     box together against a fill that is a shade or two from the card behind it,
+     and at --line-emph that border measured 1.7:1 in both themes and the boxes
+     read as smudges rather than shapes. */
   light: [
-    'classDef entry fill:#FBF7F1,stroke:#CDC2AF,color:#2A2723',
+    'classDef entry fill:#FBF7F1,stroke:#B3A68D,color:#2A2723',
     'classDef subject fill:#FBEADF,stroke:#D0471F,color:#8F2F12',
-    'classDef downstream fill:#F3ECE0,stroke:#DFD6C6,color:#2A2723',
+    'classDef downstream fill:#F3ECE0,stroke:#BFB39B,color:#2A2723',
   ],
   dark: [
-    'classDef entry fill:#17130E,stroke:#4A4236,color:#E6DFD3',
+    'classDef entry fill:#17130E,stroke:#6F6656,color:#E6DFD3',
     'classDef subject fill:#AE3917,stroke:#FF8759,color:#FFF1EA',
-    'classDef downstream fill:#2A241C,stroke:#4A4236,color:#F1EBE0',
+    'classDef downstream fill:#2A241C,stroke:#7A7160,color:#F1EBE0',
   ],
 };
 /* Inject the palette just after the diagram-type line, so the class names the
@@ -630,7 +658,12 @@ const MERMAID_VARS = {
 function currentTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
 function mermaidConfigFor(theme){
   return { startOnLoad:false, theme:'base', securityLevel:'loose', fontFamily:MERMAID_FONT,
-    flowchart:{ useMaxWidth:true, htmlLabels:true, padding:14, nodeSpacing:44, rankSpacing:56 },
+    /* useMaxWidth:false is the whole point: with it true mermaid caps the svg at
+       its natural width, the browser scales the drawing down to the column, and
+       the label size below becomes a fiction — 15px measured 5.1px at 390px and
+       3.9px at 320px. False keeps the drawing at its drawn size and lets the
+       .mermaid box scroll instead, so the type is 15px at every width. */
+    flowchart:{ useMaxWidth:false, htmlLabels:true, padding:14, nodeSpacing:44, rankSpacing:56 },
     themeVariables: Object.assign({ fontFamily:MERMAID_FONT, fontSize:'15px' },
       MERMAID_VARS[theme] || MERMAID_VARS.light) };
 }
@@ -706,6 +739,14 @@ async function repaintMermaid(){
     const theme = currentTheme();
     nodes.forEach(n=>{ n.removeAttribute('data-processed'); n.removeAttribute('id'); n.textContent = withMermaidClasses(n.dataset.src, theme); });
     await mermaid.run({ nodes });
+    // A flowchart draws its spine down the middle of its own canvas, so a box
+    // narrower than the drawing opens on the empty left margin and the reader
+    // sees a blank card. Start them looking at the middle instead; both edges
+    // are still reachable, which is the part centring in CSS would have cost.
+    nodes.forEach(n=>{
+      const slack = n.scrollWidth - n.clientWidth;
+      if (slack > 0) n.scrollLeft = Math.round(slack / 2);
+    });
   } catch(e) { console.warn('mermaid', e); }
 }
 
