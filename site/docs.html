@@ -421,7 +421,13 @@ img{max-width:100%;display:block}
 }
 .markdown blockquote p:last-child{margin-bottom:0}
 .markdown table{border-collapse:collapse;width:100%;margin:1.3em 0;font-size:14.5px;display:block;overflow-x:auto}
-.markdown th,.markdown td{border:1px solid var(--line-strong);padding:9px 13px;text-align:left}
+.markdown th,.markdown td{border:1px solid var(--line-strong);padding:9px 13px;text-align:left;
+  /* .markdown sets overflow-wrap:anywhere and cells inherit it, which let the
+     browser satisfy a narrow viewport by breaking words instead of using the
+     scroll box this table already has: "Requirement" came apart as "Requireme
+     / nt" on a phone. Back to normal wrapping here, so a column is at least as
+     wide as its longest word and the table pans instead of hyphenating itself. */
+  overflow-wrap:normal;word-break:normal}
 .markdown th{background:var(--sand);font-weight:600;color:var(--ink);font-family:var(--display)}
 .markdown td{color:var(--ink-muted)}
 .markdown img{border-radius:10px;margin:1.1em 0;border:1px solid var(--line-strong);box-shadow:var(--elev-1)}
