@@ -460,6 +460,43 @@ img{max-width:100%;display:block}
 .markdown .mermaid::-webkit-scrollbar-thumb{background:var(--line-emph);border-radius:6px}
 .markdown .mermaid::-webkit-scrollbar-track{background:transparent}
 
+/* The Expand control sits on the card rather than after it, so it reads as
+   belonging to the diagram. The wrapper exists only to give it something
+   positioned to anchor to; the card keeps its own margins. */
+.mermaid-wrap{position:relative}
+.mermaid-wrap > .mermaid{margin-bottom:1.3em}
+.mermaid-open{
+  position:absolute;top:12px;right:12px;z-index:1;
+  font:600 12px/1 var(--sans);letter-spacing:.02em;color:var(--ink-muted);
+  background:var(--paper);border:1px solid var(--line-strong);border-radius:999px;
+  padding:7px 13px;cursor:pointer;box-shadow:var(--elev-1);
+  transition:color .15s ease,border-color .15s ease;
+}
+.mermaid-open:hover,.mermaid-open:focus-visible{color:var(--ink);border-color:var(--ink-muted)}
+
+.diagram-dialog{
+  position:fixed;border:none;background:transparent;padding:0;
+  width:min(96vw,1600px);max-width:96vw;max-height:92vh;
+}
+.diagram-dialog::backdrop{background:rgba(12,10,8,.72)}
+.diagram-stage{
+  background:var(--paper);border:1px solid var(--line-strong);border-radius:14px;
+  padding:26px;overflow:auto;max-height:82vh;box-shadow:var(--elev-2,0 24px 60px rgba(0,0,0,.3));
+  display:flex;justify-content:flex-start;justify-content:safe center;
+}
+/* Same reason as the card: the drawing keeps its natural size. At this width
+   it fits outright, which is the whole point of the control. */
+.diagram-stage svg{max-width:none;height:auto;flex:0 0 auto}
+/* Anchored to the stage rather than floating under it: centred below, the pill
+   landed on top of the page's own copy of the diagram showing through the
+   backdrop, and read as part of the page instead of part of the dialog. */
+.diagram-dialog form{position:absolute;top:12px;right:12px;margin:0}
+.diagram-close{
+  font:600 12px/1 var(--sans);letter-spacing:.02em;color:var(--paper);
+  background:var(--ink);border:1px solid var(--ink);border-radius:999px;
+  padding:9px 16px;cursor:pointer;
+}
+
 /* ══ Footer ═════════════════════════════════════════════════════════════════ */
 .foot{border-top:1px solid var(--line);padding:40px 0 60px}
 .foot .row{display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
@@ -752,8 +789,58 @@ async function repaintMermaid(){
     nodes.forEach(n=>{
       const slack = n.scrollWidth - n.clientWidth;
       if (slack > 0) n.scrollLeft = Math.round(slack / 2);
+      markExpandable(n, slack > 0);
     });
   } catch(e) { console.warn('mermaid', e); }
+}
+
+/* ── Oversized diagrams open full-bleed ───────────────────────────────────
+   Keeping the drawing at its natural size is what fixed the 5px labels, but
+   the Component Map is 925px against a 752px column, so a desktop reader was
+   left panning 215px through a diagram that would fit on their screen twice
+   over. There is no room to widen the column — the third column is the
+   on-page nav — so the diagram borrows the viewport instead, on demand.
+
+   Only diagrams that actually overflow get the affordance; a small one that
+   already fits would gain a control that does nothing. The scroll box stays
+   exactly as it was underneath, so this is additive: with JS off, or if the
+   dialog is unsupported, the reader still gets a pannable 15px diagram. */
+function markExpandable(node, overflows){
+  const existing = node.parentElement?.querySelector(':scope > .mermaid-open');
+  if (!overflows) { existing?.remove(); node.classList.remove('is-expandable'); return; }
+  node.classList.add('is-expandable');
+  if (existing) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mermaid-open';
+  btn.textContent = 'Expand';
+  btn.setAttribute('aria-label', 'Open this diagram at full size');
+  btn.addEventListener('click', ()=> openDiagram(node));
+  node.insertAdjacentElement('afterend', btn);
+  const wrap = document.createElement('div');
+  wrap.className = 'mermaid-wrap';
+  node.insertAdjacentElement('beforebegin', wrap);
+  wrap.append(node, btn);
+}
+
+let diagramDialog = null;
+function openDiagram(node){
+  if (!diagramDialog){
+    diagramDialog = document.createElement('dialog');
+    diagramDialog.className = 'diagram-dialog';
+    diagramDialog.innerHTML =
+      '<div class="diagram-stage"></div>' +
+      '<form method="dialog"><button class="diagram-close" aria-label="Close diagram">Close</button></form>';
+    document.body.appendChild(diagramDialog);
+    // Clicking the backdrop closes it. The stage is the only child that fills
+    // the dialog, so a click landing on the dialog itself is a backdrop click.
+    diagramDialog.addEventListener('click', e=>{ if (e.target === diagramDialog) diagramDialog.close(); });
+  }
+  const stage = diagramDialog.querySelector('.diagram-stage');
+  const svg = node.querySelector('svg');
+  if (!svg) return;
+  stage.replaceChildren(svg.cloneNode(true));
+  if (typeof diagramDialog.showModal === 'function') diagramDialog.showModal();
 }
 
 /* ── Chapter rail ─────────────────────────────────────────────────────────
