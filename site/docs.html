@@ -533,6 +533,31 @@ if (window.marked && marked.setOptions) marked.setOptions({ gfm:true, breaks:fal
 
 /* ── Mermaid: warm-themed, loaded lazily only when a doc actually uses it ──── */
 const MERMAID_FONT = "'Schibsted Grotesk Variable', system-ui, sans-serif";
+/* Node palette per semantic class. The diagram sources name their classes
+   (entry / subject / downstream) but carry no colours, because a colour baked
+   into the markdown cannot follow a theme toggle — which is exactly how these
+   diagrams ended up rendering near-black boxes on light paper. */
+const MERMAID_CLASSES = {
+  light: [
+    'classDef entry fill:#FBF7F1,stroke:#CDC2AF,color:#2A2723',
+    'classDef subject fill:#FBEADF,stroke:#D0471F,color:#8F2F12',
+    'classDef downstream fill:#F3ECE0,stroke:#DFD6C6,color:#2A2723',
+  ],
+  dark: [
+    'classDef entry fill:#17130E,stroke:#4A4236,color:#E6DFD3',
+    'classDef subject fill:#AE3917,stroke:#FF8759,color:#FFF1EA',
+    'classDef downstream fill:#2A241C,stroke:#4A4236,color:#F1EBE0',
+  ],
+};
+/* Inject the palette just after the diagram-type line, so the class names the
+   source already uses resolve against the current theme. */
+function withMermaidClasses(src, theme){
+  const defs = MERMAID_CLASSES[theme] || MERMAID_CLASSES.light;
+  const lines = src.split('\n');
+  const i = lines.findIndex(l=>/^\s*(flowchart|graph)\b/.test(l));
+  if (i < 0) return src;
+  return [...lines.slice(0, i+1), ...defs.map(d=>'    '+d), ...lines.slice(i+1)].join('\n');
+}
 const MERMAID_VARS = {
   light: {
     background:'#FFFFFF', primaryColor:'#F3ECE0', primaryTextColor:'#2A2723',
@@ -552,7 +577,9 @@ const MERMAID_VARS = {
 function currentTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
 function mermaidConfigFor(theme){
   return { startOnLoad:false, theme:'base', securityLevel:'loose', fontFamily:MERMAID_FONT,
-    themeVariables: Object.assign({ fontFamily:MERMAID_FONT }, MERMAID_VARS[theme] || MERMAID_VARS.light) };
+    flowchart:{ useMaxWidth:true, htmlLabels:true, padding:14, nodeSpacing:44, rankSpacing:56 },
+    themeVariables: Object.assign({ fontFamily:MERMAID_FONT, fontSize:'15px' },
+      MERMAID_VARS[theme] || MERMAID_VARS.light) };
 }
 let mermaidLoadPromise = null;
 function ensureMermaid(){
@@ -623,7 +650,8 @@ async function repaintMermaid(){
   try {
     await ensureMermaid();
     mermaid.initialize(mermaidConfigFor(currentTheme()));
-    nodes.forEach(n=>{ n.removeAttribute('data-processed'); n.removeAttribute('id'); n.textContent = n.dataset.src; });
+    const theme = currentTheme();
+    nodes.forEach(n=>{ n.removeAttribute('data-processed'); n.removeAttribute('id'); n.textContent = withMermaidClasses(n.dataset.src, theme); });
     await mermaid.run({ nodes });
   } catch(e) { console.warn('mermaid', e); }
 }
