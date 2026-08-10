@@ -562,6 +562,76 @@ async function checkAllChapters(browser, base) {
 }
 
 // ---------------------------------------------------------------------------
+// The click-to-expand diagram dialog, end to end.
+//
+// The pan box keeps the diagrams legible but leaves the widest one — the 925px
+// Component Map — needing two screens of panning in the prose column. Expand is
+// the answer to that, so it has to actually deliver: a stage wide enough to
+// need no panning at all, at the diagram's natural size, and a way out.
+// ---------------------------------------------------------------------------
+async function checkDiagramDialog(browser, base) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  const where = 'docs.html#architecture desktop(1440)';
+  await page.goto(`${base}/docs.html#architecture`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+
+  const opener = page.locator('.mermaid-open').first();
+  if (await opener.count() === 0) {
+    fail('diagram-dialog', where, 'no Expand control on a diagram wide enough to need panning');
+    await ctx.close();
+    return;
+  }
+  await opener.click();
+  await page.waitForTimeout(450);
+
+  const m = await page.evaluate(() => {
+    const dlg = document.querySelector('dialog.diagram-dialog');
+    if (!dlg || !dlg.open) return { open: false };
+    const stage = dlg.querySelector('.diagram-stage');
+    const svg = stage?.querySelector('svg');
+    const texts = svg ? [...svg.querySelectorAll('text, foreignObject span, foreignObject p, foreignObject div')] : [];
+    let min = Infinity;
+    for (const t of texts) {
+      if (!t.textContent.trim()) continue;
+      const host = t.ownerSVGElement || t.closest('foreignObject');
+      const ctm = host?.getScreenCTM?.();
+      if (!ctm) continue;
+      const s = Math.sqrt(Math.abs(ctm.a * ctm.d - ctm.b * ctm.c)) || 1;
+      min = Math.min(min, parseFloat(getComputedStyle(t).fontSize) * s);
+    }
+    return {
+      open: true,
+      drawingW: Math.round(svg?.getBoundingClientRect().width || 0),
+      stageClientW: stage?.clientWidth || 0,
+      stageScrollW: stage?.scrollWidth || 0,
+      minLabelPx: min === Infinity ? null : +min.toFixed(2),
+    };
+  });
+
+  if (!m.open) {
+    fail('diagram-dialog', where, 'clicking Expand did not open the dialog');
+  } else {
+    if (m.stageScrollW > m.stageClientW + 1) {
+      fail('diagram-dialog', where,
+        `the stage still pans: ${m.stageScrollW}px of drawing in a ${m.stageClientW}px stage — Expand did not remove the panning it exists to remove`);
+    }
+    if (m.minLabelPx !== null && m.minLabelPx < 12) {
+      fail('diagram-dialog', where, `smallest label in the expanded diagram is ${m.minLabelPx}px`);
+    }
+    note(`expand dialog at 1440: ${m.drawingW}px drawing in a ${m.stageClientW}px stage, ` +
+      `scrollWidth ${m.stageScrollW} (no panning), smallest label ${m.minLabelPx}px`);
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+    const stillOpen = await page.evaluate(() => !!document.querySelector('dialog.diagram-dialog')?.open);
+    if (stillOpen) fail('diagram-dialog', where, 'Escape did not close the dialog');
+    else note('expand dialog closes on Escape');
+  }
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------------------
 // Self-test: break each invariant on purpose and require the check to notice.
 //
 // A gate that has quietly stopped failing looks exactly like one that works —
@@ -849,7 +919,42 @@ async function selftest(browser, base) {
     await ctx.close();
   }
   const identity = await selftestIdentity(browser);
-  return allCaught && identity;
+  const dialog = await selftestDialog(browser, base);
+  return allCaught && identity && dialog;
+}
+
+// The dialog check drives a real interaction rather than reading the DOM once,
+// so it cannot go through inspect() with the rest. Narrow the stage until the
+// drawing no longer fits and require the check to say so.
+async function selftestDialog(browser, base) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  await page.route('**/docs.html', async route => {
+    const res = await route.fetch();
+    let body = await res.text();
+    body = body.replace('</head>',
+      '<style>.diagram-stage{width:300px !important;max-width:300px !important}</style></head>');
+    await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/html; charset=utf-8' } });
+  });
+  await page.goto(`${base}/docs.html#architecture`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+  const opener = page.locator('.mermaid-open').first();
+  if (await opener.count() === 0) {
+    console.log('  n/a      diagram-dialog');
+    console.log('             no diagram on this chapter is wide enough to offer Expand');
+    await ctx.close();
+    return true;
+  }
+  await opener.click();
+  await page.waitForTimeout(450);
+  const pans = await page.evaluate(() => {
+    const s = document.querySelector('dialog.diagram-dialog .diagram-stage');
+    return s ? s.scrollWidth > s.clientWidth + 1 : false;
+  });
+  console.log(`  ${pans ? 'caught  ' : 'MISSED  '} diagram-dialog`);
+  console.log('             the stage narrowed to 300px so the drawing no longer fits — the check must report panning');
+  await ctx.close();
+  return pans;
 }
 
 // ---------------------------------------------------------------------------
@@ -886,6 +991,7 @@ async function main() {
     }
     const chapters = await checkAllChapters(browser, base);
     await checkCrossPageAnchors(browser, base);
+    await checkDiagramDialog(browser, base);
 
     console.log(`\nchecked ${combos} route×width×scheme combinations plus ${chapters} chapters at 2 widths\n` +
       `  ${texts} text runs measured for effective size, ${imgs} rendered images, ${anchors} fragment links\n`);
