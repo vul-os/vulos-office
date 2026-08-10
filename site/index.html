@@ -484,6 +484,14 @@ h2.head{
 .foot .links{display:flex;flex-wrap:wrap;gap:22px}
 .foot .links a{font-size:14.5px;color:var(--ink-muted)}
 .foot .links a:hover{color:var(--accent)}
+/* The Vulos attribution is a tier below the Diwan mark, not a sibling of it.
+   Scoped here rather than edited into the shared suite-chrome block below, so
+   that block stays byte-identical across every product landing. Two-class
+   specificity (0,2,0) beats the chrome rule (0,1,0) regardless of order. */
+.foot .vulos-foot{margin-top:30px;font-size:13px;color:var(--ink-muted);opacity:1}
+.foot .vulos-foot strong{color:var(--ink);font-weight:600}
+.foot .vulos-foot:hover{color:var(--ink)}
+@media(max-width:768px){.foot .vulos-foot{margin-top:22px}}
 /* Padding, cancelled by a matching negative margin, grows the tap target
    without moving the link visually or disturbing the row's spacing. */
 @media(max-width:768px){.foot .links a{padding:12px 4px;margin:-12px -4px}}
