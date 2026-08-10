@@ -275,6 +275,32 @@ async function inspect(page, opts = {}) {
       }
     });
 
+    // Generated content is text the reader reads and the scan above cannot see,
+    // because a pseudo-element owns no node. The docs rail's "Chapter" eyebrow
+    // was set in 11px this way and sailed past the element scan untouched.
+    document.querySelectorAll('body *').forEach(el => {
+      for (const pseudo of ['::before', '::after']) {
+        const cs = getComputedStyle(el, pseudo);
+        const content = cs.content;
+        if (!content || content === 'none' || content === 'normal') continue;
+        // Only quoted string content is text; url(), counters and gradients are
+        // decoration and have no legibility floor.
+        const m = /^"(.*)"$/s.exec(content);
+        if (!m || m[1].trim().length < 2) continue;
+        if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+        if (getComputedStyle(el).display === 'none') continue;
+        out.textScanned++;
+        const declared = parseFloat(cs.fontSize);
+        const effective = +(declared * effectiveScale(el)).toFixed(2);
+        if (effective < FLOOR) {
+          out.smallText.push({
+            tag: `${el.tagName.toLowerCase()}${pseudo}`, declared,
+            scale: +effectiveScale(el).toFixed(3), effective, text: m[1].slice(0, 40),
+          });
+        }
+      }
+    });
+
     // 3 · rendered aspect ratio vs the source's true aspect ratio.
     // naturalWidth is DENSITY-CORRECTED: a candidate chosen through a "2x"
     // descriptor reports half its real pixel width, so re-load currentSrc bare
@@ -611,6 +637,29 @@ const CASES = [
     },
   },
   {
+    name: 'text-too-small (::before content)',
+    target: 'docs.html',
+    // The rail's "Chapter" eyebrow — the label that carried this defect — only
+    // exists below the rail's breakpoint, so at the default 1440 the case had
+    // nothing to plant on and reported n/a while claiming to guard generated
+    // content everywhere.
+    vp: { w: 390, h: 844 },
+    why: 'a generated-content label dropped to 9px — text the element scan cannot see, because a pseudo-element owns no node',
+    mutate: () => {
+      const el = [...document.querySelectorAll('body *')].find(e => {
+        const c = getComputedStyle(e, '::before').content;
+        return /^".{2,}"$/s.test(c) && getComputedStyle(e).display !== 'none';
+      });
+      if (!el) return false;
+      const s = document.createElement('style');
+      s.textContent = `.__probe_pseudo__::before{font-size:9px !important}`;
+      document.head.appendChild(s);
+      el.classList.add('__probe_pseudo__');
+      return true;
+    },
+    caught: r => r.smallText.some(t => t.tag.includes('::before') && t.effective < 10),
+  },
+  {
     name: 'img-distorted',
     target: 'index.html',
     why: 'a decoded image forced to object-fit:fill at double height',
@@ -754,8 +803,9 @@ async function selftestIdentity(browser) {
 async function selftest(browser, base) {
   let allCaught = true;
   for (const c of CASES) {
+    const vp = c.vp || { w: 1440, h: 900 };
     const ctx = await browser.newContext({
-      viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'dark',
+      viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: 2, colorScheme: 'dark',
     });
     const page = await ctx.newPage();
     const ctxState = { offOrigin: new Set() };
