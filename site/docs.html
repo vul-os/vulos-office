@@ -115,7 +115,10 @@ body{
   margin:0;background:var(--canvas);color:var(--ink);
   font-family:var(--sans);font-size:16.5px;line-height:1.6;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-  overflow-x:hidden;
+  /* clip, not hidden: a non-visible overflow-x forces overflow-y to auto, which
+     makes body a scroll container and silently kills position:sticky on the
+     rail inside it. clip trims sideways bleed without that side effect. */
+  overflow-x:clip;
 }
 /* A fine paper grain over everything — printed matter, not a screen. */
 body::after{
@@ -213,8 +216,13 @@ img{max-width:100%;display:block}
    would push the whole page sideways. */
 .docs-shell{
   display:grid;grid-template-columns:262px minmax(0,1fr) 210px;gap:40px;
-  align-items:start;padding:40px 0 84px;
+  /* Horizontal padding must be restated: this is .wrap's own selector-mate and
+     a padding shorthand here would otherwise zero out .wrap's 28px gutter,
+     which is invisible while the max-width centres the page and only shows up
+     as edge-to-edge text once the viewport is narrower than --max. */
+  align-items:start;padding:40px 28px 84px;
 }
+@media(max-width:480px){.docs-shell{padding-left:18px;padding-right:18px}}
 @media(max-width:1200px){.docs-shell{grid-template-columns:246px minmax(0,1fr);gap:32px}.docs-toc{display:none}}
 @media(max-width:860px){.docs-shell{grid-template-columns:minmax(0,1fr);padding-top:28px;gap:24px}}
 
@@ -223,7 +231,38 @@ img{max-width:100%;display:block}
   padding:8px;box-shadow:var(--elev-1);position:sticky;top:82px;
   max-height:calc(100vh - 104px);overflow-y:auto;
 }
-@media(max-width:860px){.docs-rail{position:static;max-height:none}}
+/* Below 860px the fifteen chapters would push the article most of a screen
+   down, so the rail collapses to one sticky bar that opens on demand. */
+.rail-toggle{display:none}
+@media(max-width:860px){
+  .docs-rail{
+    position:sticky;top:64px;z-index:40;padding:6px;max-height:none;
+  }
+  .docs-rail .rail-label{display:none}
+  .rail-toggle{
+    display:flex;align-items:center;gap:10px;width:100%;
+    background:transparent;border:0;border-radius:9px;cursor:pointer;
+    padding:12px;text-align:left;color:var(--ink);
+    font-family:var(--sans);font-size:15px;font-weight:600;
+  }
+  .rail-toggle::before{
+    content:"Chapter";font-family:var(--mono);font-size:11px;font-weight:500;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--ink-ghost);
+    flex:0 0 auto;
+  }
+  .rail-toggle-cur{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rail-toggle-chev{
+    flex:0 0 auto;width:9px;height:9px;border-right:2px solid var(--ink-faint);
+    border-bottom:2px solid var(--ink-faint);transform:rotate(45deg) translate(-2px,-2px);
+    transition:transform .2s var(--ease);
+  }
+  .rail-toggle[aria-expanded="true"] .rail-toggle-chev{transform:rotate(225deg) translate(-2px,-2px)}
+  .docs-rail nav{display:none;max-height:min(60vh,420px);overflow-y:auto;padding-top:4px}
+  .docs-rail.open nav{display:block}
+}
+@media(max-width:860px) and (prefers-reduced-motion:reduce){
+  .rail-toggle-chev{transition:none}
+}
 .rail-label{
   font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.16em;
   text-transform:uppercase;color:var(--ink-ghost);padding:12px 12px 8px;
@@ -455,7 +494,11 @@ img{max-width:100%;display:block}
 <div class="wrap docs-shell">
   <aside class="docs-rail" aria-label="Documentation chapters">
     <div class="rail-label">Diwan docs</div>
-    <nav aria-label="Chapters">
+    <button class="rail-toggle" id="railToggle" type="button" aria-expanded="false" aria-controls="railNav">
+      <span class="rail-toggle-cur" id="railToggleCur">Chapters</span>
+      <span class="rail-toggle-chev" aria-hidden="true"></span>
+    </button>
+    <nav id="railNav" aria-label="Chapters">
       <a class="drow" data-slug="getting-started" href="#getting-started">Getting started</a>
       <a class="drow" data-slug="install" href="#install">Install</a>
       <a class="drow" data-slug="architecture" href="#architecture">Architecture</a>
@@ -656,8 +699,34 @@ async function repaintMermaid(){
   } catch(e) { console.warn('mermaid', e); }
 }
 
+/* ── Chapter rail ─────────────────────────────────────────────────────────
+   Below 860px the rail is a disclosure. It carries the current chapter as its
+   own label, so collapsed it still says where you are. */
+const rail = document.querySelector('.docs-rail');
+const railToggle = document.getElementById('railToggle');
+const railToggleCur = document.getElementById('railToggleCur');
+function setRailOpen(open){
+  if(!rail || !railToggle) return;
+  rail.classList.toggle('open', open);
+  railToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+if(railToggle){
+  railToggle.addEventListener('click', function(){
+    setRailOpen(!rail.classList.contains('open'));
+  });
+  // Choosing a chapter closes it again, so the article is not left behind a menu.
+  rail.querySelectorAll('nav a').forEach(function(a){
+    a.addEventListener('click', function(){ setRailOpen(false); });
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && rail.classList.contains('open')){ setRailOpen(false); railToggle.focus(); }
+  });
+}
+
 function setActive(slug){
   document.querySelectorAll('.docs-rail a').forEach(a=>a.classList.toggle('active', a.dataset.slug===slug));
+  const doc = bySlug[slug];
+  if(railToggleCur && doc) railToggleCur.textContent = doc.title;
 }
 
 async function load(slug){
