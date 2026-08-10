@@ -15,7 +15,7 @@
 // contributor-facing ones are not), and a glob would quietly start publishing
 // a new internal doc the moment someone added it.
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -79,14 +79,68 @@ for (const [dest, src] of Object.entries(PAGES)) {
   }
 }
 
-if (missing || stale) {
+// The markdown was synced but the images it points at never were: site/
+// screenshots/ was hand-copied once and drifted, so screenshots.md shipped two
+// <img> tags that 404'd on the live docs page. Every image a published page
+// references is mirrored from its source directory here, and a reference with
+// no source file is a hard failure — a broken image is not something a reader
+// can route around.
+const IMG_RE = /!\[[^\]]*\]\((screenshots\/[^)\s]+)\)/g;
+const wanted = new Map(); // 'screenshots/x.png' -> [pages that ask for it]
+
+for (const dest of Object.keys(PAGES)) {
+  const destPath = join(root, dest);
+  if (!existsSync(destPath)) continue;
+  const body = readFileSync(destPath, 'utf8');
+  for (const m of body.matchAll(IMG_RE)) {
+    if (!wanted.has(m[1])) wanted.set(m[1], []);
+    wanted.get(m[1]).push(dest);
+  }
+}
+
+// A reference sweep that found nothing would pass silently forever; the docs
+// gallery has always carried images, so zero means the regex stopped matching.
+if (wanted.size === 0) {
+  console.error('sync-site-docs: found 0 image references — the scan is broken, not the docs');
+  process.exit(1);
+}
+
+let imgStale = 0;
+let imgMissing = 0;
+mkdirSync(join(root, 'site', 'screenshots'), { recursive: true });
+
+for (const [rel, pages] of wanted) {
+  const srcPath = join(root, 'docs', rel);
+  const destPath = join(root, 'site', rel);
+
+  if (!existsSync(srcPath)) {
+    console.error(`  ✗ ${rel}: referenced by ${pages.join(', ')} but docs/${rel} does not exist`);
+    imgMissing++;
+    continue;
+  }
+
+  const want = readFileSync(srcPath);
+  const have = existsSync(destPath) ? readFileSync(destPath) : null;
+  if (have && have.equals(want)) continue;
+
+  if (check) {
+    console.error(`  ✗ site/${rel} is ${have ? 'stale' : 'missing'} — re-run: node scripts/sync-site-docs.mjs`);
+    imgStale++;
+  } else {
+    writeFileSync(destPath, want);
+    console.log(`  synced docs/${rel} → site/${rel}`);
+  }
+}
+
+if (missing || stale || imgStale || imgMissing) {
   console.error(
-    `\nsync-site-docs: FAIL (${stale} stale, ${missing} missing source)`,
+    `\nsync-site-docs: FAIL (${stale} stale, ${missing} missing source, ` +
+      `${imgStale} stale image, ${imgMissing} image with no source)`,
   );
   process.exit(1);
 }
 console.log(
   check
-    ? `sync-site-docs: all ${EXPECTED_PAGES} published pages match their sources`
-    : `sync-site-docs: ${EXPECTED_PAGES} pages up to date`,
+    ? `sync-site-docs: all ${EXPECTED_PAGES} published pages and ${wanted.size} images match their sources`
+    : `sync-site-docs: ${EXPECTED_PAGES} pages and ${wanted.size} images up to date`,
 );
